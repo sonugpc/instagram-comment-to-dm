@@ -1,16 +1,16 @@
-/**
- * Instagram OAuth — Connect
- *
- * GET /api/instagram/connect
- * Redirects the user to Instagram's OAuth authorization page.
- */
-
 import { NextResponse } from "next/server";
-import { getAuthorizationUrl } from "@/lib/meta/oauth";
+import { getCurrentWorkspaceId } from "@/lib/auth";
+import { getBaseUrl } from "@/lib/env";
+import { createOAuthState, getAuthorizationUrl } from "@/lib/meta/oauth";
 
 export async function GET() {
-  const redirectUri = `${process.env.NEXTAUTH_URL}/api/instagram/callback`;
-  const authUrl = getAuthorizationUrl(redirectUri);
+  const workspaceId = await getCurrentWorkspaceId();
+  if (!workspaceId) {
+    return NextResponse.redirect(`${getBaseUrl()}/login`);
+  }
 
-  return NextResponse.redirect(authUrl);
+  const redirectUri = `${getBaseUrl()}/api/instagram/callback`;
+  const state = createOAuthState(workspaceId);
+
+  return NextResponse.redirect(getAuthorizationUrl(redirectUri, state));
 }

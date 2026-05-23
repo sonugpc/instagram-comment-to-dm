@@ -6,7 +6,7 @@
  * Shows all automations as cards with toggle, edit, delete.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 interface Automation {
@@ -26,11 +26,7 @@ export default function AutomationsPage() {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchAutomations();
-  }, []);
-
-  async function fetchAutomations() {
+  const fetchAutomations = useCallback(async () => {
     try {
       const res = await fetch("/api/automations");
       const data = await res.json();
@@ -40,7 +36,14 @@ export default function AutomationsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchAutomations();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchAutomations]);
 
   async function toggleActive(id: string, isActive: boolean) {
     try {

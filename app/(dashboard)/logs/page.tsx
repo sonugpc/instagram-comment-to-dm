@@ -27,7 +27,15 @@ interface Pagination {
   totalPages: number;
 }
 
-const STATUS_FILTERS = ["ALL", "SENT", "FAILED", "PENDING", "SKIPPED_RATE_LIMIT", "SKIPPED_DEDUP"];
+const STATUS_FILTERS = [
+  "ALL",
+  "SENT",
+  "FAILED",
+  "PENDING",
+  "SKIPPED_RATE_LIMIT",
+  "SKIPPED_PLAN_LIMIT",
+  "SKIPPED_DEDUP",
+];
 
 export default function LogsPage() {
   const [logs, setLogs] = useState<DmLog[]>([]);
@@ -37,7 +45,6 @@ export default function LogsPage() {
   const [page, setPage] = useState(1);
 
   const fetchLogs = useCallback(async () => {
-    setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "20" });
       if (statusFilter !== "ALL") params.set("status", statusFilter);
@@ -56,10 +63,14 @@ export default function LogsPage() {
   }, [page, statusFilter]);
 
   useEffect(() => {
-    fetchLogs();
+    const timer = window.setTimeout(() => {
+      void fetchLogs();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [fetchLogs]);
 
   function handleFilterChange(status: string) {
+    setLoading(true);
     setStatusFilter(status);
     setPage(1);
   }
@@ -160,7 +171,10 @@ export default function LogsPage() {
             <div className="flex items-center gap-2">
               <button
                 disabled={page <= 1}
-                onClick={() => setPage(page - 1)}
+                onClick={() => {
+                  setLoading(true);
+                  setPage(page - 1);
+                }}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium text-muted border border-border hover:text-foreground hover:border-border-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
               >
                 Previous
@@ -170,7 +184,10 @@ export default function LogsPage() {
               </span>
               <button
                 disabled={page >= pagination.totalPages}
-                onClick={() => setPage(page + 1)}
+                onClick={() => {
+                  setLoading(true);
+                  setPage(page + 1);
+                }}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium text-muted border border-border hover:text-foreground hover:border-border-hover transition-all disabled:opacity-30 disabled:pointer-events-none"
               >
                 Next

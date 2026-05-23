@@ -21,6 +21,7 @@ export function getRedisConnection(): Redis {
 // ─── DM Queue ───────────────────────────────────────────────────────────────────
 
 export interface ProcessCommentJob {
+  instagramAccountId: string;
   commentId: string;
   commentText: string;
   commenterId: string;

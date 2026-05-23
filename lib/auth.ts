@@ -1,68 +1,64 @@
-/**
- * Shared NextAuth Configuration
- *
- * Exports the auth config and helper functions for use in
- * both the route handler and server components/API routes.
- */
-
-import NextAuth from "next-auth";
-import Credentials from "next-auth/providers/credentials";
+import NextAuth, { type NextAuthConfig } from "next-auth";
+import Resend from "next-auth/providers/resend";
+import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db/client";
+import { ensureWorkspaceForUser, getPrimaryWorkspace } from "@/lib/workspace";
+
+type AdapterPrismaClient = Parameters<typeof PrismaAdapter>[0];
 
 export const authConfig = {
+  adapter: PrismaAdapter(prisma as unknown as AdapterPrismaClient),
   providers: [
-    Credentials({
-      name: "Instagram",
-      credentials: {
-        userId: { label: "User ID", type: "text" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.userId) return null;
-
-        const user = await prisma.user.findUnique({
-          where: { id: credentials.userId as string },
-        });
-
-        if (!user) return null;
-
-        return {
-          id: user.id,
-          name: user.name ?? user.instagramUsername,
-          email: user.email,
-        };
-      },
+    Resend({
+      apiKey: process.env.RESEND_API_KEY ?? "missing-resend-api-key",
+      from: process.env.EMAIL_FROM ?? "InstaReply <login@example.com>",
     }),
   ],
   callbacks: {
-    async session({ session, token }: { session: any; token: any }) {
-      if (token?.sub) {
-        session.user.id = token.sub;
+    async session({ session, user }) {
+      if (session.user) {
+        session.user.id = user.id;
       }
       return session;
     },
-    async jwt({ token, user }: { token: any; user: any }) {
-      if (user) {
-        token.sub = user.id;
+  },
+  events: {
+    async createUser({ user }) {
+      if (user.id) {
+        await ensureWorkspaceForUser(user.id, user.email);
       }
-      return token;
     },
   },
   pages: {
     signIn: "/login",
+    verifyRequest: "/login?checkEmail=1",
   },
   session: {
-    strategy: "jwt" as const,
+    strategy: "database",
   },
+  trustHost: true,
   secret: process.env.NEXTAUTH_SECRET,
-};
+} satisfies NextAuthConfig;
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig);
 
-/**
- * Get the current user's ID from the session.
- * Returns null if not authenticated.
- */
 export async function getCurrentUserId(): Promise<string | null> {
   const session = await auth();
   return session?.user?.id ?? null;
+}
+
+export async function getCurrentWorkspaceId(): Promise<string | null> {
+  const userId = await getCurrentUserId();
+  if (!userId) return null;
+
+  const workspace = await getPrimaryWorkspace(userId);
+  if (workspace) return workspace.id;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+
+  const createdWorkspace = await ensureWorkspaceForUser(userId, user?.email);
+  return createdWorkspace.id;
 }

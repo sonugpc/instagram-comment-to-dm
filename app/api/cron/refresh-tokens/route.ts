@@ -1,15 +1,3 @@
-/**
- * Token Refresh Cron Job
- *
- * GET /api/cron/refresh-tokens
- *
- * Finds all users whose Instagram access tokens expire within the next 10 days
- * and refreshes them for another 60 days.
- *
- * Should be called daily by a cron job (e.g., Vercel Cron or external scheduler).
- * Secured by CRON_SECRET header check.
- */
-
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { decryptToken, encryptToken } from "@/lib/meta/oauth";
@@ -18,7 +6,6 @@ import { refreshLongLivedToken } from "@/lib/meta/client";
 const DAYS_BEFORE_EXPIRY = 10;
 
 export async function GET(request: NextRequest) {
-  // Verify cron secret (simple auth for cron endpoints)
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET || process.env.NEXTAUTH_SECRET;
 
@@ -31,96 +18,77 @@ export async function GET(request: NextRequest) {
 
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() + DAYS_BEFORE_EXPIRY);
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  try {
-    // Find users whose tokens expire within the next 10 days
-    const usersToRefresh = await prisma.user.findMany({
-      where: {
-        accessToken: { not: null },
-        tokenExpiresAt: {
-          not: null,
-          lte: cutoffDate,
+  const usageReset = await prisma.workspace.updateMany({
+    where: { usagePeriodStart: { lt: monthStart } },
+    data: {
+      usagePeriodStart: monthStart,
+      dmsSentThisPeriod: 0,
+    },
+  });
+
+  const accountsToRefresh = await prisma.instagramAccount.findMany({
+    where: {
+      accessToken: { not: "" },
+      tokenExpiresAt: {
+        not: null,
+        lte: cutoffDate,
+      },
+    },
+    select: {
+      id: true,
+      username: true,
+      accessToken: true,
+    },
+  });
+
+  const results: Array<{
+    instagramAccountId: string;
+    username: string;
+    status: "refreshed" | "failed";
+    error?: string;
+  }> = [];
+
+  for (const account of accountsToRefresh) {
+    try {
+      const currentToken = decryptToken(account.accessToken);
+      const { accessToken: newToken, expiresIn } =
+        await refreshLongLivedToken(currentToken);
+      const encryptedToken = encryptToken(newToken);
+      const newExpiry = new Date(Date.now() + expiresIn * 1000);
+
+      await prisma.instagramAccount.update({
+        where: { id: account.id },
+        data: {
+          accessToken: encryptedToken,
+          tokenExpiresAt: newExpiry,
         },
-      },
-      select: {
-        id: true,
-        instagramUsername: true,
-        accessToken: true,
-      },
-    });
+      });
 
-    console.log(
-      `[Token Refresh] Found ${usersToRefresh.length} token(s) to refresh`
-    );
-
-    const results: Array<{
-      userId: string;
-      username: string | null;
-      status: "refreshed" | "failed";
-      error?: string;
-    }> = [];
-
-    for (const user of usersToRefresh) {
-      try {
-        if (!user.accessToken) continue;
-
-        // Decrypt the current token
-        const currentToken = decryptToken(user.accessToken);
-
-        // Refresh it
-        const { accessToken: newToken, expiresIn } =
-          await refreshLongLivedToken(currentToken);
-
-        // Encrypt the new token
-        const encryptedToken = encryptToken(newToken);
-        const newExpiry = new Date(Date.now() + expiresIn * 1000);
-
-        // Update in DB
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            accessToken: encryptedToken,
-            tokenExpiresAt: newExpiry,
-          },
-        });
-
-        results.push({
-          userId: user.id,
-          username: user.instagramUsername ?? null,
-          status: "refreshed",
-        });
-
-        console.log(
-          `[Token Refresh] Refreshed token for @${user.instagramUsername}`
-        );
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : "Unknown error";
-        results.push({
-          userId: user.id,
-          username: user.instagramUsername ?? null,
-          status: "failed",
-          error: errorMessage,
-        });
-        console.error(
-          `[Token Refresh] Failed for @${user.instagramUsername}:`,
-          errorMessage
-        );
-      }
+      results.push({
+        instagramAccountId: account.id,
+        username: account.username,
+        status: "refreshed",
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Unknown error";
+      results.push({
+        instagramAccountId: account.id,
+        username: account.username,
+        status: "failed",
+        error: errorMessage,
+      });
     }
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        totalProcessed: usersToRefresh.length,
-        results,
-      },
-    });
-  } catch (err) {
-    console.error("[Token Refresh] Error:", err);
-    return NextResponse.json(
-      { success: false, error: "Token refresh job failed" },
-      { status: 500 }
-    );
   }
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      totalProcessed: accountsToRefresh.length,
+      workspacesReset: usageReset.count,
+      results,
+    },
+  });
 }
