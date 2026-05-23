@@ -37,7 +37,7 @@ export default function SettingsPage() {
   }, []);
 
   async function disconnectInstagram() {
-    if (!confirm("Disconnect Instagram? All automations will stop sending DMs.")) {
+    if (!confirm("Disconnect Instagram? All campaigns will stop sending DMs.")) {
       return;
     }
 
@@ -170,8 +170,8 @@ export default function SettingsPage() {
 
         <div className="mt-4 space-y-3">
           {[
-            { plan: "PRO" as const, price: "$19/mo", features: "10 automations · 2,000 DMs/month" },
-            { plan: "AGENCY" as const, price: "$49/mo", features: "Unlimited automations · 10,000 DMs/month" },
+            { plan: "PRO" as const, price: "$19/mo", features: "10 campaigns · 2,000 DMs/month" },
+            { plan: "AGENCY" as const, price: "$49/mo", features: "Unlimited campaigns · 10,000 DMs/month" },
           ].map((tier) => (
             <div
               key={tier.plan}

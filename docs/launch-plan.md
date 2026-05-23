@@ -8,7 +8,7 @@ CampaignCue should not launch as a generic chatbot builder.
 
 Launch message:
 
-> Open-source Instagram comment-to-DM automation for agencies and campaign teams.
+> Open-source Instagram comment-to-DM campaign OS for agencies and campaign teams.
 
 Primary wedge:
 
@@ -50,7 +50,7 @@ Secondary audiences:
 - Demo GIF: comment keyword -> private reply.
 - Landing page screenshot.
 - Dashboard screenshot.
-- Automation builder screenshot.
+- Campaign builder screenshot.
 - Logs screenshot.
 - README demo section.
 - Template examples.

@@ -42,7 +42,7 @@ const flowSteps = [
     eyebrow: "Build",
     title: "Choose a post, keywords, and the exact DM",
     description:
-      "Create automations for reels, posts, launches, product drops, lead magnets, and client campaigns.",
+      "Create campaigns for reels, posts, launches, product drops, lead magnets, and client work.",
   },
   {
     eyebrow: "Deliver",
@@ -92,7 +92,7 @@ const pricingTiers = [
     price: "$0",
     label: "Start testing",
     description: "For validating one keyword campaign.",
-    features: ["1 automation", "100 DMs per month", "Email sign-in", "Basic DM logs"],
+    features: ["1 campaign", "100 DMs per month", "Email sign-in", "Basic DM logs"],
     cta: "Start free",
     featured: false,
   },
@@ -102,7 +102,7 @@ const pricingTiers = [
     label: "Most popular",
     description: "For brands and creators running repeatable launches.",
     features: [
-      "10 automations",
+      "10 campaigns",
       "2,000 DMs per month",
       "Stripe billing portal",
       "Daily token maintenance",
@@ -116,7 +116,7 @@ const pricingTiers = [
     label: "Higher volume",
     description: "For operators managing bigger campaign pipelines.",
     features: [
-      "Unlimited automations",
+      "Unlimited campaigns",
       "10,000 DMs per month",
       "Queue-backed worker",
       "Workspace-ready foundation",
@@ -252,7 +252,7 @@ function BuilderPreview() {
       <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div>
           <p className="text-sm font-semibold text-white">Product guide reply</p>
-          <p className="text-xs text-zinc-500">Automation builder</p>
+          <p className="text-xs text-zinc-500">Campaign builder</p>
         </div>
         <span className="bg-cyan-300 px-3 py-1 text-xs font-bold text-zinc-950">
           Active
@@ -316,7 +316,7 @@ function DashboardVisual() {
     <div className="border border-white/10 bg-zinc-950 p-4 shadow-2xl shadow-black/40">
       <div className="grid gap-3 sm:grid-cols-3">
         {[
-          ["Active automations", "8"],
+          ["Active campaigns", "8"],
           ["DMs this month", "1,284"],
           ["Delivery status", "99%"],
         ].map(([label, value]) => (
@@ -596,7 +596,7 @@ export default function Home() {
             Free to test, simple to scale
           </h2>
           <p className="mt-5 text-base leading-8 text-zinc-400">
-            Each plan maps directly to automation count and monthly DM volume.
+            Each plan maps directly to campaign count and monthly DM volume.
             Stripe webhooks provision the workspace plan after checkout.
           </p>
         </div>

@@ -203,7 +203,7 @@ export default function DiagnosticsPage() {
       </Section>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Section title="DM Failures And Skips">
+        <Section title="Campaign DM Failures And Skips">
           {data?.dmFailures.length ? (
             <div className="space-y-3">
               {data.dmFailures.map((item) => (

@@ -13,7 +13,7 @@ Status: merged through issue [#5](https://github.com/im-anishraj/instagram-comme
 - Email magic-link auth.
 - Workspace tenancy.
 - Instagram account connection.
-- Keyword automations.
+- Keyword campaigns.
 - Meta webhook processing.
 - BullMQ worker.
 - Stripe subscriptions.

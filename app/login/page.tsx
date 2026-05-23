@@ -2,7 +2,7 @@ import { signIn } from "@/lib/auth";
 
 export const metadata = {
   title: "Login - CampaignCue",
-  description: "Sign in to manage Instagram comment-to-DM automations.",
+  description: "Sign in to manage Instagram comment-to-DM campaigns.",
 };
 
 export default async function LoginPage({

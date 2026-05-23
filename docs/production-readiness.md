@@ -70,7 +70,7 @@ Dev/build tooling advisories should still be tracked before public contributor c
 4. Confirm `/api/health` returns `status: ok` after the worker starts.
 5. Sign in by magic link and confirm a workspace is created.
 6. Connect a Meta test Instagram professional account.
-7. Create one keyword automation for a test post or reel.
+7. Create one keyword campaign for a test post or reel.
 8. Send a signed Meta webhook test payload and confirm one BullMQ job is queued.
 9. Comment the keyword from a test user and confirm one private reply is sent.
 10. Confirm `/logs` shows one `SENT` log and `/diagnostics` has no new failures.

@@ -18,7 +18,7 @@ export default function MetaReviewPage() {
         <h2 className="text-xl font-bold text-white">User Flow</h2>
         <p className="mt-3">
           A business owner signs in by email, connects an Instagram professional
-          account through Meta OAuth, creates a keyword automation for a post or
+          account through Meta OAuth, creates a keyword campaign for a post or
           reel, and receives a webhook when someone comments. CampaignCue queues
           the event, deduplicates it, checks plan and rate limits, then sends a
           private reply using the comment ID.
@@ -30,7 +30,7 @@ export default function MetaReviewPage() {
         <p className="mt-3">
           The app uses official Meta APIs, verifies webhook signatures, encrypts
           tokens, avoids scraping, avoids password collection, and sends no more
-          than one private reply for a matched automation/comment pair.
+          than one private reply for a matched campaign/comment pair.
         </p>
       </section>
 

@@ -1,6 +1,6 @@
 # CampaignCue
 
-Open-source Instagram comment-to-DM automation for businesses, creators, and agencies.
+Open-source Instagram comment-to-DM campaign OS for businesses, creators, and agencies.
 
 CampaignCue turns comments like `LINK`, `PRICE`, or `GUIDE` into Meta-compliant private replies. The core engine is MIT licensed and self-hostable. The hosted SaaS layer is being built for agencies that want campaign templates, analytics, client reports, and managed reliability.
 
@@ -24,13 +24,13 @@ Most tools in this market are broad chatbot platforms. CampaignCue is intentiona
 
 - Email magic-link signup with workspace tenancy.
 - Instagram professional account connection as an integration.
-- Keyword automations for posts and reels.
+- Keyword campaigns for posts and reels.
 - Meta webhook verification and event storage.
 - BullMQ worker for private reply delivery.
-- Idempotent DM logs per automation/comment.
+- Idempotent DM logs per campaign/comment.
 - Atomic monthly usage reservations and Redis-backed hourly DM reservations.
 - Stripe Checkout, Customer Portal, and subscription webhooks.
-- Plan limits for automations and monthly DMs.
+- Plan limits for campaigns and monthly DMs.
 - Vercel cron for token refresh and usage maintenance.
 - Health checks and authenticated production diagnostics.
 - Public Privacy, Terms, Data Deletion, and Meta App Review support pages.
@@ -54,7 +54,7 @@ Screenshots and GIFs are planned in issue [#17](https://github.com/im-anishraj/i
 
 - Landing page hero screenshot.
 - Dashboard overview screenshot.
-- Automation builder screenshot.
+- Campaign builder screenshot.
 - Logs page screenshot.
 - 30 second "comment LINK -> private reply" demo GIF using a Meta test account.
 

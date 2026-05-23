@@ -6,6 +6,7 @@ import { getEffectivePlan, PLAN_LIMITS } from "@/lib/billing/plans";
 
 const createAutomationSchema = z.object({
   name: z.string().min(1).max(100),
+  goal: z.string().min(1).max(120).optional().nullable(),
   postId: z.string().min(1),
   postUrl: z.string().url().optional().nullable(),
   keywords: z.array(z.string().min(1).max(50)).min(1).max(10),
@@ -16,6 +17,7 @@ const createAutomationSchema = z.object({
 
 const updateAutomationSchema = z.object({
   name: z.string().min(1).max(100).optional(),
+  goal: z.string().min(1).max(120).optional().nullable(),
   keywords: z.array(z.string().min(1).max(50)).min(1).max(10).optional(),
   dmMessage: z.string().min(1).max(1000).optional(),
   isActive: z.boolean().optional(),
@@ -91,7 +93,7 @@ export async function POST(request: NextRequest) {
 
   if (!instagramAccount) {
     return NextResponse.json(
-      { success: false, error: "Connect Instagram before creating automations" },
+      { success: false, error: "Connect Instagram before creating campaigns" },
       { status: 400 }
     );
   }
@@ -106,7 +108,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: `Plan limit reached. Your ${effectivePlan} plan allows up to ${limit.maxAutomations} automation(s).`,
+        error: `Plan limit reached. Your ${effectivePlan} plan allows up to ${limit.maxAutomations} campaign(s).`,
       },
       { status: 403 }
     );
@@ -138,7 +140,7 @@ export async function PATCH(request: NextRequest) {
   const automationId = request.nextUrl.searchParams.get("id");
   if (!automationId) {
     return NextResponse.json(
-      { success: false, error: "Missing automation ID" },
+      { success: false, error: "Missing campaign ID" },
       { status: 400 }
     );
   }
@@ -163,7 +165,7 @@ export async function PATCH(request: NextRequest) {
 
   if (!existing) {
     return NextResponse.json(
-      { success: false, error: "Automation not found" },
+      { success: false, error: "Campaign not found" },
       { status: 404 }
     );
   }
@@ -188,7 +190,7 @@ export async function DELETE(request: NextRequest) {
   const automationId = request.nextUrl.searchParams.get("id");
   if (!automationId) {
     return NextResponse.json(
-      { success: false, error: "Missing automation ID" },
+      { success: false, error: "Missing campaign ID" },
       { status: 400 }
     );
   }
@@ -199,7 +201,7 @@ export async function DELETE(request: NextRequest) {
 
   if (!existing) {
     return NextResponse.json(
-      { success: false, error: "Automation not found" },
+      { success: false, error: "Campaign not found" },
       { status: 404 }
     );
   }

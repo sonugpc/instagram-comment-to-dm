@@ -12,7 +12,7 @@ CampaignCue uses the official Instagram API to send private replies to people wh
 
 1. Sign in to CampaignCue with an email magic link.
 2. Connect an Instagram Business or Creator account.
-3. Create an automation for a recent reel/post with keyword `LINK`.
+3. Create a campaign for a recent reel/post with keyword `LINK`.
 4. From a tester Instagram account, comment `LINK` on that reel/post.
 5. Show `/api/webhook` receiving the comment event.
 6. Show the worker sending a private reply through the Instagram messages endpoint using the comment ID.

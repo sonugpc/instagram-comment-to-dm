@@ -11,7 +11,7 @@ export default function TermsPage() {
   return (
     <LegalShell
       title="Terms of Service"
-      description="These terms define acceptable use for CampaignCue's hosted Instagram comment-to-DM automation service."
+      description="These terms define acceptable use for CampaignCue's hosted Instagram comment-to-DM campaign service."
       updatedAt="May 24, 2026"
     >
       <section>
@@ -28,7 +28,7 @@ export default function TermsPage() {
         <p className="mt-3">
           You agree to follow Meta Platform Terms, Instagram policies, applicable
           messaging rules, privacy laws, advertising rules, and anti-spam laws.
-          CampaignCue may rate-limit, pause, or disable automations that create
+          CampaignCue may rate-limit, pause, or disable campaigns that create
           compliance, abuse, security, or deliverability risk.
         </p>
       </section>

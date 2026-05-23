@@ -10,10 +10,13 @@ import { usePathname } from "next/navigation";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
-  "/automations": "Automations",
-  "/automations/new": "New Automation",
+  "/campaigns": "Campaigns",
+  "/campaigns/new": "New Campaign",
+  "/automations": "Campaigns",
+  "/automations/new": "New Campaign",
   "/logs": "DM Logs",
   "/settings": "Settings",
+  "/diagnostics": "Diagnostics",
 };
 
 interface TopBarProps {

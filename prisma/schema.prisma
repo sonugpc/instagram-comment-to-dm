@@ -130,6 +130,7 @@ model Automation {
   instagramAccountId String
 
   name           String
+  goal           String?
   postId         String
   postUrl        String?
   keywords       String[]

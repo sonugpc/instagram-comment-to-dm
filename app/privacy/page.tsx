@@ -19,8 +19,8 @@ export default function PrivacyPage() {
         <p className="mt-3">
           We collect account email addresses for authentication, workspace and
           billing metadata, connected Instagram account identifiers, encrypted
-          Instagram access tokens, automation settings, webhook payloads,
-          comments needed to process automations, delivery logs, and operational
+          Instagram access tokens, campaign settings, webhook payloads,
+          comments needed to process campaigns, delivery logs, and operational
           diagnostics.
         </p>
       </section>
@@ -59,7 +59,7 @@ export default function PrivacyPage() {
         <h2 className="text-xl font-bold text-white">Retention And Deletion</h2>
         <p className="mt-3">
           Customers can disconnect Instagram from settings, which removes the
-          stored Instagram connection and stops automations. For account or data
+          stored Instagram connection and stops campaigns. For account or data
           deletion, follow the Data Deletion page linked from the footer.
         </p>
       </section>

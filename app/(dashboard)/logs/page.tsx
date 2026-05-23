@@ -105,7 +105,7 @@ export default function LogsPage() {
               <tr className="border-b border-border text-left">
                 <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Commenter</th>
                 <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Comment</th>
-                <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Automation</th>
+                <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Campaign</th>
                 <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Status</th>
                 <th className="px-6 py-4 text-xs font-semibold text-muted uppercase tracking-wider">Time</th>
               </tr>
