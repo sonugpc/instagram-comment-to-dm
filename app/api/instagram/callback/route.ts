@@ -1,94 +1,94 @@
-/**
- * Instagram OAuth — Callback
- *
- * GET /api/instagram/callback?code=...
- *
- * 1. Exchange authorization code for short-lived token
- * 2. Exchange short-lived token for long-lived token (60 days)
- * 3. Get user info from Instagram
- * 4. Encrypt and store the token in the database
- * 5. Auto sign-in via NextAuth and redirect to dashboard
- */
-
 import { NextRequest, NextResponse } from "next/server";
-import { exchangeCodeForToken, encryptToken } from "@/lib/meta/oauth";
-import { getLongLivedToken, getUserInfo } from "@/lib/meta/client";
+import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
-import { signIn } from "@/lib/auth";
+import { getBaseUrl } from "@/lib/env";
+import { getLongLivedToken, getUserInfo, subscribeInstagramAccountToWebhooks } from "@/lib/meta/client";
+import {
+  encryptToken,
+  exchangeCodeForToken,
+  verifyOAuthState,
+} from "@/lib/meta/oauth";
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const error = request.nextUrl.searchParams.get("error");
+  const state = verifyOAuthState(request.nextUrl.searchParams.get("state"));
+  const baseUrl = getBaseUrl();
 
   if (error) {
-    console.error("[OAuth Callback] Error from Instagram:", error);
-    return NextResponse.redirect(
-      `${process.env.NEXTAUTH_URL}/login?error=oauth_denied`
-    );
+    return NextResponse.redirect(`${baseUrl}/settings?instagram=denied`);
   }
 
-  if (!code) {
-    return NextResponse.redirect(
-      `${process.env.NEXTAUTH_URL}/login?error=no_code`
-    );
+  if (!code || !state) {
+    return NextResponse.redirect(`${baseUrl}/settings?instagram=invalid`);
+  }
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.redirect(`${baseUrl}/login`);
+  }
+
+  const membership = await prisma.workspaceMember.findFirst({
+    where: {
+      workspaceId: state.workspaceId,
+      userId: session.user.id,
+    },
+  });
+
+  if (!membership) {
+    return NextResponse.redirect(`${baseUrl}/settings?instagram=forbidden`);
   }
 
   try {
-    const redirectUri = `${process.env.NEXTAUTH_URL}/api/instagram/callback`;
-
-    // 1. Exchange code for short-lived token
-    const { accessToken: shortLivedToken, userId: instagramUserId } =
-      await exchangeCodeForToken(code, redirectUri);
-
-    // 2. Exchange for long-lived token (60 days)
+    const redirectUri = `${baseUrl}/api/instagram/callback`;
+    const { accessToken: shortLivedToken } = await exchangeCodeForToken(
+      code,
+      redirectUri
+    );
     const { accessToken: longLivedToken, expiresIn } =
       await getLongLivedToken(shortLivedToken);
-
-    // 3. Get user info
     const userInfo = await getUserInfo(longLivedToken);
-
-    // 4. Encrypt the token
     const encryptedToken = encryptToken(longLivedToken);
-
-    // 5. Calculate token expiry
     const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    // 6. Upsert the user record
-    const user = await prisma.user.upsert({
-      where: { instagramId: instagramUserId },
+    let webhookSubscribed = false;
+    try {
+      const subscription = await subscribeInstagramAccountToWebhooks(
+        userInfo.id,
+        longLivedToken
+      );
+      webhookSubscribed = Boolean(subscription.success);
+    } catch (subscriptionError) {
+      console.warn(
+        "[Instagram Callback] Webhook subscription failed:",
+        subscriptionError
+      );
+    }
+
+    await prisma.instagramAccount.upsert({
+      where: { instagramId: userInfo.id },
       create: {
-        instagramId: instagramUserId,
-        instagramUsername: userInfo.username,
+        workspaceId: state.workspaceId,
+        instagramId: userInfo.id,
+        username: userInfo.username,
         name: userInfo.name,
         accessToken: encryptedToken,
         tokenExpiresAt,
+        webhookSubscribed,
       },
       update: {
-        instagramUsername: userInfo.username,
+        workspaceId: state.workspaceId,
+        username: userInfo.username,
         name: userInfo.name,
         accessToken: encryptedToken,
         tokenExpiresAt,
+        webhookSubscribed,
       },
     });
 
-    console.log(
-      `[OAuth Callback] User ${user.instagramUsername} connected successfully`
-    );
-
-    // 7. Sign in via NextAuth (sets session cookie)
-    await signIn("credentials", {
-      userId: user.id,
-      redirect: false,
-    });
-
-    // 8. Redirect to dashboard
-    return NextResponse.redirect(
-      `${process.env.NEXTAUTH_URL}/dashboard?connected=true`
-    );
+    return NextResponse.redirect(`${baseUrl}/dashboard?connected=true`);
   } catch (err) {
-    console.error("[OAuth Callback] Error:", err);
-    return NextResponse.redirect(
-      `${process.env.NEXTAUTH_URL}/login?error=oauth_failed`
-    );
+    console.error("[Instagram Callback] Error:", err);
+    return NextResponse.redirect(`${baseUrl}/settings?instagram=failed`);
   }
 }

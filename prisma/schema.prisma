@@ -1,5 +1,4 @@
-// InstaReply — Prisma Schema
-// Instagram Comment → Auto-DM SaaS
+// InstaReply — B2B Instagram Comment → DM SaaS schema
 
 generator client {
   provider = "prisma-client"
@@ -11,75 +10,207 @@ datasource db {
 }
 
 model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts          Account[]
+  sessions          Session[]
+  ownedWorkspaces   Workspace[]       @relation("WorkspaceOwner")
+  workspaceMembers  WorkspaceMember[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Workspace {
   id        String   @id @default(cuid())
-  email     String?  @unique
-  name      String?
+  name      String
+  ownerId   String
+  owner     User     @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
-  plan      Plan     @default(FREE)
+  updatedAt DateTime @updatedAt
 
-  // Instagram connection
-  instagramId       String?   @unique
-  instagramUsername  String?
-  accessToken       String? // encrypted via AES-256-GCM
+  plan                 Plan                @default(FREE)
+  subscriptionStatus   SubscriptionStatus  @default(NONE)
+  stripeCustomerId     String?             @unique
+  stripeSubscriptionId String?             @unique
+  stripePriceId        String?
+  currentPeriodEnd     DateTime?
+  usagePeriodStart     DateTime            @default(now())
+  dmsSentThisPeriod    Int                 @default(0)
+
+  members           WorkspaceMember[]
+  instagramAccounts InstagramAccount[]
+  automations       Automation[]
+  dmLogs            DmLog[]
+  webhookEvents     WebhookEvent[]
+  billingEvents     BillingEvent[]
+
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(OWNER)
+  createdAt   DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model InstagramAccount {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  instagramId       String   @unique
+  username          String
+  name              String?
+  accessToken       String
   tokenExpiresAt    DateTime?
+  webhookSubscribed Boolean  @default(false)
+  connectedAt       DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   automations Automation[]
   dmLogs      DmLog[]
+
+  @@index([workspaceId])
 }
 
 model Automation {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  instagramAccountId String
 
-  name      String
-  postId    String // Instagram Media ID
-  postUrl   String?
-  keywords  String[] // e.g. ["LINK", "PRICE", "INFO"]
-  dmMessage String // The DM to send
-  isActive  Boolean  @default(true)
-
-  // Whether to match whole words only (false = partial match allowed)
+  name           String
+  postId         String
+  postUrl        String?
+  keywords       String[]
+  dmMessage      String
+  isActive       Boolean @default(true)
   wholeWordMatch Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  dmLogs DmLog[]
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  dmLogs           DmLog[]
 
+  @@index([workspaceId])
+  @@index([instagramAccountId])
   @@index([postId])
-  @@index([userId])
 }
 
 model DmLog {
-  id           String     @id @default(cuid())
-  automationId String
-  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
-  userId       String
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String     @id @default(cuid())
+  workspaceId        String
+  automationId       String
+  instagramAccountId String
 
-  commenterId   String // Instagram user ID who commented
+  commenterId   String
   commenterName String?
   commentText   String
-  commentId     String    @unique // dedup key
+  commentId     String
+  matchedKeyword String?
+  status        DmStatus @default(PENDING)
+  attempts      Int      @default(0)
   dmSentAt      DateTime?
-  status        DmStatus  @default(PENDING)
   errorMessage  String?
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  automation       Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([automationId, commentId])
+  @@index([workspaceId])
   @@index([automationId])
-  @@index([userId])
-  @@index([commentId])
+  @@index([instagramAccountId])
+  @@index([status])
 }
 
 model WebhookEvent {
-  id        String   @id @default(cuid())
-  payload   Json
-  processed Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id          String        @id @default(cuid())
+  workspaceId String?
+  object      String?
+  payload     Json
+  status      WebhookStatus @default(PENDING)
+  errorMessage String?
+  createdAt   DateTime      @default(now())
+  processedAt DateTime?
 
-  @@index([processed])
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([status])
+}
+
+model BillingEvent {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  stripeEventId String @unique
+  type        String
+  payload     Json
+  processedAt DateTime @default(now())
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
 }
 
 enum Plan {
@@ -88,10 +219,27 @@ enum Plan {
   AGENCY
 }
 
+enum SubscriptionStatus {
+  NONE
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  UNPAID
+  CANCELED
+}
+
 enum DmStatus {
   PENDING
   SENT
   FAILED
   SKIPPED_DEDUP
   SKIPPED_RATE_LIMIT
+  SKIPPED_PLAN_LIMIT
+  SKIPPED_NO_MATCH
+}
+
+enum WebhookStatus {
+  PENDING
+  PROCESSED
+  FAILED
 }

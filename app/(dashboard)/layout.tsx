@@ -1,37 +1,38 @@
-"use client";
+import { redirect } from "next/navigation";
+import DashboardShell from "@/components/dashboard-shell";
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/db/client";
+import { ensureWorkspaceForUser } from "@/lib/workspace";
+import { getEffectivePlan } from "@/lib/billing/plans";
 
-/**
- * Dashboard Layout
- *
- * Shell with sidebar + top bar for all authenticated pages.
- * Uses route group (dashboard) so /dashboard, /automations, /logs, /settings
- * all share this layout.
- */
-
-import { useState } from "react";
-import Sidebar from "@/components/sidebar";
-import TopBar from "@/components/top-bar";
-
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    redirect("/login");
+  }
+
+  const workspace = await ensureWorkspaceForUser(
+    session.user.id,
+    session.user.email
+  );
+  const account = await prisma.instagramAccount.findFirst({
+    where: { workspaceId: workspace.id },
+    orderBy: { connectedAt: "desc" },
+    select: { username: true },
+  });
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <TopBar onMenuClick={() => setSidebarOpen(true)} />
-
-        <main className="flex-1 overflow-y-auto">
-          <div className="px-4 lg:px-8 py-6 max-w-7xl mx-auto">
-            {children}
-          </div>
-        </main>
-      </div>
-    </div>
+    <DashboardShell
+      workspaceName={workspace.name}
+      plan={getEffectivePlan(workspace.plan, workspace.subscriptionStatus)}
+      instagramUsername={account?.username ?? null}
+    >
+      {children}
+    </DashboardShell>
   );
 }

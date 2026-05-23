@@ -18,9 +18,10 @@ const pageTitles: Record<string, string> = {
 
 interface TopBarProps {
   onMenuClick: () => void;
+  instagramUsername: string | null;
 }
 
-export default function TopBar({ onMenuClick }: TopBarProps) {
+export default function TopBar({ onMenuClick, instagramUsername }: TopBarProps) {
   const pathname = usePathname();
   const title = pageTitles[pathname] ?? "Dashboard";
 
@@ -43,8 +44,12 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
       {/* Right: status */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface border border-border text-xs text-muted">
-          <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-          Connected
+          <div
+            className={`w-2 h-2 rounded-full ${
+              instagramUsername ? "bg-success animate-pulse" : "bg-warning"
+            }`}
+          />
+          {instagramUsername ? `@${instagramUsername}` : "Connect Instagram"}
         </div>
       </div>
     </header>

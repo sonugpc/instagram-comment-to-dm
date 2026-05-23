@@ -9,10 +9,16 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "InstaReply — Instagram Comment to DM Automation",
+  title: "InstaReply - Instagram Comment to DM Automation for Businesses",
   description:
-    "Automatically send DMs to users who comment specific keywords on your Instagram posts. Open-source, self-hostable, powered by the official Meta Graph API.",
-  keywords: ["instagram", "automation", "DM", "comments", "manychat alternative"],
+    "A B2B SaaS for sending Meta-compliant Instagram private replies when customers comment keywords on posts and reels.",
+  keywords: [
+    "instagram automation",
+    "comment to DM",
+    "instagram private replies",
+    "social commerce",
+    "manychat alternative",
+  ],
 };
 
 export default function RootLayout({

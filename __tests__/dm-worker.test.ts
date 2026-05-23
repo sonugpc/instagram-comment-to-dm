@@ -1,22 +1,15 @@
-/**
- * DM Worker — Integration Tests
- *
- * Tests the full comment → DM pipeline with mocked Meta API and Prisma.
- */
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// ─── Mocks ─────────────────────────────────────────────────────────────────────
-
-// Use vi.hoisted so these are available inside vi.mock factories (which are hoisted)
 const {
   mockPrisma,
-  mockSendDM,
+  mockSendPrivateReply,
   mockDecryptToken,
   mockMatchKeywords,
   mockCheckRateLimit,
   mockIncrementDMCounter,
   mockQueueAdd,
+  mockCanSendDMForWorkspace,
+  mockIncrementWorkspaceDMUsage,
 } = vi.hoisted(() => ({
   mockPrisma: {
     automation: {
@@ -24,15 +17,18 @@ const {
     },
     dmLog: {
       findUnique: vi.fn(),
-      create: vi.fn(),
+      upsert: vi.fn(),
+      update: vi.fn(),
     },
   },
-  mockSendDM: vi.fn(),
+  mockSendPrivateReply: vi.fn(),
   mockDecryptToken: vi.fn(),
   mockMatchKeywords: vi.fn(),
   mockCheckRateLimit: vi.fn(),
   mockIncrementDMCounter: vi.fn(),
   mockQueueAdd: vi.fn(),
+  mockCanSendDMForWorkspace: vi.fn(),
+  mockIncrementWorkspaceDMUsage: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -40,10 +36,15 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 vi.mock("@/lib/meta/client", () => ({
-  sendDM: mockSendDM,
+  sendPrivateReply: mockSendPrivateReply,
   MetaApiError: class MetaApiError extends Error {
     code: number;
-    constructor(code: number, _subcode: number | undefined, _fbTraceId: string | undefined, message: string) {
+    constructor(
+      code: number,
+      _subcode: number | undefined,
+      _fbTraceId: string | undefined,
+      message: string
+    ) {
       super(message);
       this.code = code;
       this.name = "MetaApiError";
@@ -64,6 +65,11 @@ vi.mock("@/lib/utils/rate-limiter", () => ({
   incrementDMCounter: mockIncrementDMCounter,
 }));
 
+vi.mock("@/lib/billing/usage", () => ({
+  canSendDMForWorkspace: mockCanSendDMForWorkspace,
+  incrementWorkspaceDMUsage: mockIncrementWorkspaceDMUsage,
+}));
+
 vi.mock("@/lib/queue/client", () => ({
   getDMQueue: () => ({
     add: mockQueueAdd,
@@ -71,7 +77,6 @@ vi.mock("@/lib/queue/client", () => ({
   getRedisConnection: vi.fn(),
 }));
 
-// Mock BullMQ Worker
 vi.mock("bullmq", () => {
   function MockWorker(_name: string, processor: unknown) {
     (global as Record<string, unknown>).__dmWorkerProcessor = processor;
@@ -82,36 +87,32 @@ vi.mock("bullmq", () => {
   }
   return {
     Worker: MockWorker,
-    Queue: vi.fn(),
-    Job: vi.fn(),
   };
 });
 
-// Import after mocks are set up
 import { createDMWorker } from "../lib/queue/dm-worker";
-
-// ─── Test Data ──────────────────────────────────────────────────────────────────
-
-const mockUser = {
-  id: "user_123",
-  instagramId: "ig_456",
-  instagramUsername: "testuser",
-  accessToken: "encrypted_token_abc",
-  plan: "PRO",
-};
 
 const mockAutomation = {
   id: "auto_789",
-  userId: "user_123",
+  workspaceId: "workspace_123",
+  instagramAccountId: "ig_account_row_1",
   postId: "media_101",
   keywords: ["LINK", "PRICE"],
   dmMessage: "Hey {username}! Here is the link: https://example.com",
   isActive: true,
   wholeWordMatch: true,
-  user: mockUser,
+  instagramAccount: {
+    id: "ig_account_row_1",
+    instagramId: "ig_456",
+    accessToken: "encrypted_token_abc",
+  },
+  workspace: {
+    id: "workspace_123",
+  },
 };
 
 const mockJobData = {
+  instagramAccountId: "ig_456",
   commentId: "comment_555",
   commentText: "I want the LINK!",
   commenterId: "commenter_999",
@@ -119,15 +120,17 @@ const mockJobData = {
   mediaId: "media_101",
 };
 
-// ─── Helpers ────────────────────────────────────────────────────────────────────
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getProcessor(): (job: any) => Promise<void> {
+function getProcessor(): (job: {
+  data: typeof mockJobData;
+  id: string;
+  attemptsMade: number;
+}) => Promise<void> {
   createDMWorker();
-  return (global as Record<string, unknown>).__dmWorkerProcessor as (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    job: any
-  ) => Promise<void>;
+  return (global as Record<string, unknown>).__dmWorkerProcessor as (job: {
+    data: typeof mockJobData;
+    id: string;
+    attemptsMade: number;
+  }) => Promise<void>;
 }
 
 function createMockJob(data = mockJobData) {
@@ -138,17 +141,20 @@ function createMockJob(data = mockJobData) {
   };
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────────
-
 beforeEach(() => {
   vi.clearAllMocks();
 
-  // Default mock implementations for happy path
   mockPrisma.automation.findMany.mockResolvedValue([mockAutomation]);
-  mockPrisma.dmLog.findUnique.mockResolvedValue(null); // No dedup match
-  mockPrisma.dmLog.create.mockResolvedValue({});
+  mockPrisma.dmLog.findUnique.mockResolvedValue(null);
+  mockPrisma.dmLog.upsert.mockResolvedValue({});
+  mockPrisma.dmLog.update.mockResolvedValue({});
   mockDecryptToken.mockReturnValue("decrypted_token");
   mockMatchKeywords.mockReturnValue({ matched: true, matchedKeyword: "LINK" });
+  mockCanSendDMForWorkspace.mockResolvedValue({
+    allowed: true,
+    remaining: 100,
+    limit: 2000,
+  });
   mockCheckRateLimit.mockResolvedValue({
     allowed: true,
     currentCount: 10,
@@ -158,57 +164,63 @@ beforeEach(() => {
     shouldSkip: false,
   });
   mockIncrementDMCounter.mockResolvedValue(11);
-  mockSendDM.mockResolvedValue({ recipient_id: "commenter_999", message_id: "msg_001" });
+  mockIncrementWorkspaceDMUsage.mockResolvedValue({});
+  mockSendPrivateReply.mockResolvedValue({
+    recipient_id: "commenter_999",
+    message_id: "msg_001",
+  });
 });
 
 describe("DM Worker — Full Pipeline", () => {
-  it("should send a DM for a matching comment", async () => {
+  it("should send a private reply for a matching comment", async () => {
     const processor = getProcessor();
-    const job = createMockJob();
 
-    await processor(job);
+    await processor(createMockJob());
 
-    // Should find automations for the media
     expect(mockPrisma.automation.findMany).toHaveBeenCalledWith({
-      where: { postId: "media_101", isActive: true },
-      include: { user: true },
+      where: {
+        postId: "media_101",
+        isActive: true,
+        instagramAccount: { instagramId: "ig_456" },
+      },
+      include: {
+        instagramAccount: true,
+        workspace: true,
+      },
+      orderBy: { createdAt: "asc" },
     });
-
-    // Should check keyword match
     expect(mockMatchKeywords).toHaveBeenCalledWith(
       "I want the LINK!",
       ["LINK", "PRICE"],
       true
     );
-
-    // Should check dedup
     expect(mockPrisma.dmLog.findUnique).toHaveBeenCalledWith({
-      where: { commentId: "auto_789:comment_555" },
+      where: {
+        automationId_commentId: {
+          automationId: "auto_789",
+          commentId: "comment_555",
+        },
+      },
     });
-
-    // Should check rate limit
+    expect(mockCanSendDMForWorkspace).toHaveBeenCalledWith("workspace_123");
     expect(mockCheckRateLimit).toHaveBeenCalledWith("ig_456", 0);
-
-    // Should decrypt token
     expect(mockDecryptToken).toHaveBeenCalledWith("encrypted_token_abc");
-
-    // Should send DM with merge tag replaced
-    expect(mockSendDM).toHaveBeenCalledWith(
+    expect(mockSendPrivateReply).toHaveBeenCalledWith(
       "decrypted_token",
-      "commenter_999",
+      "ig_456",
+      "comment_555",
       "Hey commenter_user! Here is the link: https://example.com"
     );
-
-    // Should increment rate counter
     expect(mockIncrementDMCounter).toHaveBeenCalledWith("ig_456");
-
-    // Should log success
-    expect(mockPrisma.dmLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        status: "SENT",
-        automationId: "auto_789",
-        commenterId: "commenter_999",
-      }),
+    expect(mockIncrementWorkspaceDMUsage).toHaveBeenCalledWith("workspace_123");
+    expect(mockPrisma.dmLog.update).toHaveBeenCalledWith({
+      where: {
+        automationId_commentId: {
+          automationId: "auto_789",
+          commentId: "comment_555",
+        },
+      },
+      data: expect.objectContaining({ status: "SENT" }),
     });
   });
 
@@ -218,26 +230,29 @@ describe("DM Worker — Full Pipeline", () => {
 
     await processor(createMockJob());
 
-    expect(mockSendDM).not.toHaveBeenCalled();
-    expect(mockPrisma.dmLog.create).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockPrisma.dmLog.upsert).not.toHaveBeenCalled();
   });
 
-  it("should skip when keywords don't match", async () => {
+  it("should skip when keywords do not match", async () => {
     mockMatchKeywords.mockReturnValue({ matched: false, matchedKeyword: null });
     const processor = getProcessor();
 
     await processor(createMockJob());
 
-    expect(mockSendDM).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
   });
 
-  it("should skip duplicate comments (dedup)", async () => {
-    mockPrisma.dmLog.findUnique.mockResolvedValue({ id: "existing_log" });
+  it("should skip duplicate comments already sent", async () => {
+    mockPrisma.dmLog.findUnique.mockResolvedValue({
+      id: "existing_log",
+      status: "SENT",
+    });
     const processor = getProcessor();
 
     await processor(createMockJob());
 
-    expect(mockSendDM).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
   });
 
   it("should requeue when rate limited", async () => {
@@ -253,10 +268,7 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(createMockJob());
 
-    // Should not send DM
-    expect(mockSendDM).not.toHaveBeenCalled();
-
-    // Should requeue with delay
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
     expect(mockQueueAdd).toHaveBeenCalledWith(
       "process-comment",
       expect.objectContaining({
@@ -265,6 +277,7 @@ describe("DM Worker — Full Pipeline", () => {
       }),
       expect.objectContaining({
         delay: 1800000,
+        jobId: "comment:ig_456:comment_555:retry:1",
       })
     );
   });
@@ -282,27 +295,28 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(createMockJob());
 
-    // Should log as skipped
-    expect(mockPrisma.dmLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        status: "SKIPPED_RATE_LIMIT",
-      }),
-    });
-
-    // Should not send DM
-    expect(mockSendDM).not.toHaveBeenCalled();
+    expect(mockPrisma.dmLog.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ status: "SKIPPED_RATE_LIMIT" }),
+      })
+    );
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
   });
 
-  it("should log FAILED when DM sending fails and re-throw", async () => {
+  it("should log FAILED when private reply sending fails and re-throw", async () => {
     const error = new Error("API Error");
-    mockSendDM.mockRejectedValue(error);
+    mockSendPrivateReply.mockRejectedValue(error);
 
     const processor = getProcessor();
 
     await expect(processor(createMockJob())).rejects.toThrow("API Error");
-
-    // Should log failure
-    expect(mockPrisma.dmLog.create).toHaveBeenCalledWith({
+    expect(mockPrisma.dmLog.update).toHaveBeenCalledWith({
+      where: {
+        automationId_commentId: {
+          automationId: "auto_789",
+          commentId: "comment_555",
+        },
+      },
       data: expect.objectContaining({
         status: "FAILED",
         errorMessage: "API Error",
@@ -314,45 +328,43 @@ describe("DM Worker — Full Pipeline", () => {
     mockPrisma.automation.findMany.mockResolvedValue([
       {
         ...mockAutomation,
-        user: { ...mockUser, accessToken: null },
+        instagramAccount: {
+          ...mockAutomation.instagramAccount,
+          accessToken: null,
+        },
       },
     ]);
 
     const processor = getProcessor();
     await processor(createMockJob());
 
-    // Should log failure
-    expect(mockPrisma.dmLog.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        status: "FAILED",
-        errorMessage: "No access token available",
-      }),
-    });
-
-    expect(mockSendDM).not.toHaveBeenCalled();
-  });
-
-  it("should replace {username} merge tag in DM message", async () => {
-    const processor = getProcessor();
-    await processor(createMockJob());
-
-    expect(mockSendDM).toHaveBeenCalledWith(
-      "decrypted_token",
-      "commenter_999",
-      "Hey commenter_user! Here is the link: https://example.com"
+    expect(mockPrisma.dmLog.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: "FAILED",
+          errorMessage: "No Instagram access token available",
+        }),
+      })
     );
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
   });
 
   it("should use 'there' when commenter name is not available", async () => {
     const processor = getProcessor();
-    const { commenterName: _, ...jobDataWithoutName } = mockJobData;
-    await processor(
-      createMockJob(jobDataWithoutName as typeof mockJobData)
-    );
+    const jobDataWithoutName = {
+      instagramAccountId: mockJobData.instagramAccountId,
+      commentId: mockJobData.commentId,
+      commentText: mockJobData.commentText,
+      commenterId: mockJobData.commenterId,
+      mediaId: mockJobData.mediaId,
+    };
 
-    expect(mockSendDM).toHaveBeenCalledWith(
+    await processor(createMockJob(jobDataWithoutName as typeof mockJobData));
+
+    expect(mockSendPrivateReply).toHaveBeenCalledWith(
       "decrypted_token",
-      "commenter_999",
+      "ig_456",
+      "comment_555",
       "Hey there! Here is the link: https://example.com"
     );
   });

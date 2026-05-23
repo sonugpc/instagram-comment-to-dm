@@ -85,6 +85,7 @@ describe("parseCommentEvents", () => {
     const events = parseCommentEvents(payload);
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
+      instagramAccountId: "page_123",
       commentId: "comment_456",
       commentText: "I want the LINK!",
       commenterId: "user_789",
@@ -180,7 +181,7 @@ describe("parseCommentEvents", () => {
     expect(events).toHaveLength(2);
   });
 
-  it("should skip events with missing required fields", () => {
+  it("should parse events with empty text so matching can decide later", () => {
     const payload = {
       object: "instagram",
       entry: [
@@ -203,9 +204,8 @@ describe("parseCommentEvents", () => {
     };
 
     const events = parseCommentEvents(payload);
-    // Empty text should still be parsed (matching will filter later)
-    // But missing id should be filtered
-    expect(events).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    expect(events[0].commentText).toBe("");
   });
 
   it("should handle entries without changes", () => {

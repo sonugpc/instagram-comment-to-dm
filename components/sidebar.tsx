@@ -53,9 +53,16 @@ const navItems = [
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  workspaceName: string;
+  plan: string;
 }
 
-export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+export default function Sidebar({
+  isOpen,
+  onClose,
+  workspaceName,
+  plan,
+}: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -126,8 +133,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               IR
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">InstaReply</p>
-              <p className="text-xs text-muted truncate">Free Plan</p>
+              <p className="text-sm font-medium text-foreground truncate">
+                {workspaceName}
+              </p>
+              <p className="text-xs text-muted truncate">{plan} Plan</p>
             </div>
           </div>
         </div>

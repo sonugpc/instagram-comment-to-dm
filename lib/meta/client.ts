@@ -1,14 +1,12 @@
-/**
- * Meta Graph API Client
- *
- * Typed wrapper for Instagram Graph API v19+ operations.
- * Handles DM sending, comment fetching, user info, and token management.
- */
+import { getMetaGraphApiVersion, requireEnv } from "@/lib/env";
 
-const GRAPH_API_BASE = "https://graph.instagram.com/v19.0";
-const GRAPH_API_FB_BASE = "https://graph.facebook.com/v19.0";
+function instagramGraphBase() {
+  return `https://graph.instagram.com/${getMetaGraphApiVersion()}`;
+}
 
-// ─── Error Types ───────────────────────────────────────────────────────────────
+function facebookGraphBase() {
+  return `https://graph.facebook.com/${getMetaGraphApiVersion()}`;
+}
 
 export class MetaApiError extends Error {
   constructor(
@@ -42,8 +40,6 @@ export class PermissionError extends MetaApiError {
     this.name = "PermissionError";
   }
 }
-
-// ─── Response Types ─────────────────────────────────────────────────────────────
 
 interface GraphApiError {
   error: {
@@ -83,11 +79,9 @@ export interface InstagramMedia {
 
 interface TokenResponse {
   access_token: string;
-  token_type: string;
+  token_type?: string;
   expires_in?: number;
 }
-
-// ─── Internal Helpers ───────────────────────────────────────────────────────────
 
 async function handleResponse<T>(response: Response): Promise<T> {
   const data = await response.json();
@@ -103,8 +97,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
       case 190:
         throw new TokenExpiredError(message, traceId);
       case 368:
+      case 4:
+      case 17:
         throw new RateLimitError(message, traceId);
+      case 10:
       case 100:
+      case 200:
         throw new PermissionError(message, traceId);
       default:
         throw new MetaApiError(code, subcode, traceId, message);
@@ -114,40 +112,35 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return data as T;
 }
 
-// ─── Public API ─────────────────────────────────────────────────────────────────
-
-/**
- * Send a DM via the Instagram Messaging API.
- * Uses POST /me/messages on the Graph API.
- */
-export async function sendDM(
-  pageAccessToken: string,
-  recipientId: string,
+export async function sendPrivateReply(
+  accessToken: string,
+  instagramAccountId: string,
+  commentId: string,
   message: string
 ): Promise<{ recipient_id: string; message_id: string }> {
-  const response = await fetch(`${GRAPH_API_FB_BASE}/me/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${pageAccessToken}`,
-    },
-    body: JSON.stringify({
-      recipient: { id: recipientId },
-      message: { text: message },
-    }),
-  });
+  const response = await fetch(
+    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        recipient: { comment_id: commentId },
+        message: { text: message },
+      }),
+    }
+  );
 
   return handleResponse(response);
 }
 
-/**
- * Fetch comments for a given Instagram media object.
- */
 export async function getMediaComments(
   accessToken: string,
   mediaId: string
 ): Promise<InstagramComment[]> {
-  const url = new URL(`${GRAPH_API_BASE}/${mediaId}/comments`);
+  const url = new URL(`${instagramGraphBase()}/${mediaId}/comments`);
   url.searchParams.set("fields", "id,text,from,timestamp");
   url.searchParams.set("access_token", accessToken);
 
@@ -156,13 +149,8 @@ export async function getMediaComments(
   return data.data;
 }
 
-/**
- * Get the authenticated user's profile info.
- */
-export async function getUserInfo(
-  accessToken: string
-): Promise<InstagramUser> {
-  const url = new URL(`${GRAPH_API_BASE}/me`);
+export async function getUserInfo(accessToken: string): Promise<InstagramUser> {
+  const url = new URL(`${instagramGraphBase()}/me`);
   url.searchParams.set("fields", "id,username,name");
   url.searchParams.set("access_token", accessToken);
 
@@ -170,14 +158,11 @@ export async function getUserInfo(
   return handleResponse<InstagramUser>(response);
 }
 
-/**
- * Fetch the user's recent Instagram media posts.
- */
 export async function getUserMedia(
   accessToken: string,
   limit = 25
 ): Promise<InstagramMedia[]> {
-  const url = new URL(`${GRAPH_API_BASE}/me/media`);
+  const url = new URL(`${instagramGraphBase()}/me/media`);
   url.searchParams.set(
     "fields",
     "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink"
@@ -190,15 +175,12 @@ export async function getUserMedia(
   return data.data;
 }
 
-/**
- * Exchange a short-lived token for a long-lived token (60 days).
- */
 export async function getLongLivedToken(
   shortLivedToken: string
 ): Promise<{ accessToken: string; expiresIn: number }> {
-  const url = new URL(`${GRAPH_API_BASE}/access_token`);
+  const url = new URL(`${instagramGraphBase()}/access_token`);
   url.searchParams.set("grant_type", "ig_exchange_token");
-  url.searchParams.set("client_secret", process.env.INSTAGRAM_APP_SECRET!);
+  url.searchParams.set("client_secret", requireEnv("INSTAGRAM_APP_SECRET"));
   url.searchParams.set("access_token", shortLivedToken);
 
   const response = await fetch(url.toString());
@@ -206,18 +188,14 @@ export async function getLongLivedToken(
 
   return {
     accessToken: data.access_token,
-    expiresIn: data.expires_in ?? 5184000, // default 60 days
+    expiresIn: data.expires_in ?? 5184000,
   };
 }
 
-/**
- * Refresh a long-lived token before it expires.
- * Returns a new long-lived token valid for another 60 days.
- */
 export async function refreshLongLivedToken(
   longLivedToken: string
 ): Promise<{ accessToken: string; expiresIn: number }> {
-  const url = new URL(`${GRAPH_API_BASE}/refresh_access_token`);
+  const url = new URL(`${instagramGraphBase()}/refresh_access_token`);
   url.searchParams.set("grant_type", "ig_refresh_token");
   url.searchParams.set("access_token", longLivedToken);
 
@@ -230,15 +208,12 @@ export async function refreshLongLivedToken(
   };
 }
 
-/**
- * Subscribe an Instagram account to webhook events (comments + messages).
- */
-export async function subscribeToWebhook(
-  pageId: string,
+export async function subscribeInstagramAccountToWebhooks(
+  instagramAccountId: string,
   accessToken: string
 ): Promise<{ success: boolean }> {
   const response = await fetch(
-    `${GRAPH_API_FB_BASE}/${pageId}/subscribed_apps`,
+    `${instagramGraphBase()}/${instagramAccountId}/subscribed_apps`,
     {
       method: "POST",
       headers: {
@@ -251,5 +226,13 @@ export async function subscribeToWebhook(
     }
   );
 
+  return handleResponse(response);
+}
+
+export async function debugToken(inputToken: string, accessToken: string) {
+  const url = new URL(`${facebookGraphBase()}/debug_token`);
+  url.searchParams.set("input_token", inputToken);
+  url.searchParams.set("access_token", accessToken);
+  const response = await fetch(url.toString());
   return handleResponse(response);
 }

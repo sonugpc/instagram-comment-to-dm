@@ -1,52 +1,40 @@
-/**
- * Instagram Posts API
- *
- * GET /api/instagram/posts — Fetch the authenticated user's recent Instagram posts
- */
-
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
-import { decryptToken } from "@/lib/meta/oauth";
 import { getUserMedia } from "@/lib/meta/client";
-import { getCurrentUserId } from "@/lib/auth";
+import { decryptToken } from "@/lib/meta/oauth";
 
 export async function GET(request: NextRequest) {
-  const userId = await getCurrentUserId();
-  if (!userId) {
+  const workspaceId = await getCurrentWorkspaceId();
+  if (!workspaceId) {
     return NextResponse.json(
       { success: false, error: "Unauthorized" },
       { status: 401 }
     );
   }
 
-  try {
-    // Get the user and their encrypted access token
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        accessToken: true,
-        instagramId: true,
-        instagramUsername: true,
+  const account = await prisma.instagramAccount.findFirst({
+    where: { workspaceId },
+    orderBy: { connectedAt: "desc" },
+  });
+
+  if (!account) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Instagram account not connected. Please connect your account first.",
       },
-    });
+      { status: 400 }
+    );
+  }
 
-    if (!user || !user.accessToken) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Instagram account not connected. Please connect your account first.",
-        },
-        { status: 400 }
-      );
-    }
-
-    // Decrypt the token
-    const accessToken = decryptToken(user.accessToken);
-
-    // Fetch recent posts from Instagram
+  try {
+    const accessToken = decryptToken(account.accessToken);
     const limitParam = request.nextUrl.searchParams.get("limit");
-    const limit = limitParam ? Math.min(parseInt(limitParam, 10), 50) : 25;
-
+    const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : 25;
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(Math.max(parsedLimit, 1), 50)
+      : 25;
     const posts = await getUserMedia(accessToken, limit);
 
     return NextResponse.json({ success: true, data: posts });

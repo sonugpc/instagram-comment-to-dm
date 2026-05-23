@@ -1,63 +1,54 @@
-/**
- * DM Worker
- *
- * BullMQ worker that processes comment events and sends DMs.
- *
- * Pipeline:
- * 1. Find active automations for the media post
- * 2. Match comment text against keywords
- * 3. Check dedup (commentId already processed?)
- * 4. Check rate limit (≤190 DMs/hour per account)
- * 5. Send DM via Graph API
- * 6. Log result to DmLog table
- *
- * Retry: exponential backoff — 5min, 15min, 45min (3 attempts max)
- */
-
-import { Worker, Job } from "bullmq";
-import { getRedisConnection, type ProcessCommentJob } from "./client";
+import { Worker, type Job } from "bullmq";
+import { getDMQueue, getRedisConnection, type ProcessCommentJob } from "./client";
 import { prisma } from "@/lib/db/client";
-import { sendDM, MetaApiError } from "@/lib/meta/client";
+import { MetaApiError, sendPrivateReply } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
+import { checkRateLimit, incrementDMCounter } from "@/lib/utils/rate-limiter";
 import {
-  checkRateLimit,
-  incrementDMCounter,
-} from "@/lib/utils/rate-limiter";
-import { getDMQueue } from "./client";
+  canSendDMForWorkspace,
+  incrementWorkspaceDMUsage,
+} from "@/lib/billing/usage";
 
-// Backoff delays in milliseconds: 5min, 15min, 45min
 const BACKOFF_DELAYS = [5 * 60 * 1000, 15 * 60 * 1000, 45 * 60 * 1000];
 
-/**
- * Process a single comment event:
- * Find matching automations → dedup → rate limit → send DM → log
- */
+function formatError(error: unknown): string {
+  if (error instanceof MetaApiError) {
+    return `Meta API Error ${error.code}: ${error.message}`;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Unknown error";
+}
+
 async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
-  const { commentId, commentText, commenterId, commenterName, mediaId } =
-    job.data;
+  const {
+    instagramAccountId,
+    commentId,
+    commentText,
+    commenterId,
+    commenterName,
+    mediaId,
+  } = job.data;
   const requeueAttempt = job.data.requeueAttempt ?? 0;
 
-  // 1. Find all active automations for this media post
   const automations = await prisma.automation.findMany({
     where: {
       postId: mediaId,
       isActive: true,
+      instagramAccount: {
+        instagramId: instagramAccountId,
+      },
     },
     include: {
-      user: true,
+      instagramAccount: true,
+      workspace: true,
     },
+    orderBy: { createdAt: "asc" },
   });
 
-  if (automations.length === 0) {
-    // No automations configured for this post — nothing to do
-    return;
-  }
-
   for (const automation of automations) {
-    const { user } = automation;
-
-    // 2. Check keyword match
     const matchResult = matchKeywords(
       commentText,
       automation.keywords,
@@ -65,47 +56,115 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     );
 
     if (!matchResult.matched) {
-      continue; // Comment doesn't match any keyword for this automation
+      continue;
     }
 
-    // 3. Check dedup — has this exact comment already been processed for this automation?
     const existingLog = await prisma.dmLog.findUnique({
-      where: { commentId: `${automation.id}:${commentId}` },
+      where: {
+        automationId_commentId: {
+          automationId: automation.id,
+          commentId,
+        },
+      },
     });
 
-    if (existingLog) {
-      // Already processed — skip
+    if (
+      existingLog?.status === "SENT" ||
+      existingLog?.status === "SKIPPED_PLAN_LIMIT" ||
+      existingLog?.status === "SKIPPED_RATE_LIMIT"
+    ) {
       continue;
     }
 
-    // 4. Check rate limit
-    if (!user.instagramId) {
+    const usage = await canSendDMForWorkspace(automation.workspaceId);
+    if (!usage.allowed) {
+      await prisma.dmLog.upsert({
+        where: {
+          automationId_commentId: {
+            automationId: automation.id,
+            commentId,
+          },
+        },
+        create: {
+          workspaceId: automation.workspaceId,
+          automationId: automation.id,
+          instagramAccountId: automation.instagramAccountId,
+          commenterId,
+          commenterName,
+          commentText,
+          commentId,
+          matchedKeyword: matchResult.matchedKeyword,
+          status: "SKIPPED_PLAN_LIMIT",
+          errorMessage: `Monthly DM limit reached (${usage.limit})`,
+        },
+        update: {
+          status: "SKIPPED_PLAN_LIMIT",
+          matchedKeyword: matchResult.matchedKeyword,
+          errorMessage: `Monthly DM limit reached (${usage.limit})`,
+        },
+      });
       continue;
     }
 
-    const rateLimit = await checkRateLimit(user.instagramId, requeueAttempt);
-
+    const rateLimit = await checkRateLimit(instagramAccountId, requeueAttempt);
     if (!rateLimit.allowed) {
       if (rateLimit.shouldSkip) {
-        // Exceeded max requeue attempts — log as skipped
-        await prisma.dmLog.create({
-          data: {
+        await prisma.dmLog.upsert({
+          where: {
+            automationId_commentId: {
+              automationId: automation.id,
+              commentId,
+            },
+          },
+          create: {
+            workspaceId: automation.workspaceId,
             automationId: automation.id,
-            userId: user.id,
+            instagramAccountId: automation.instagramAccountId,
             commenterId,
             commenterName,
             commentText,
-            commentId: `${automation.id}:${commentId}`,
+            commentId,
+            matchedKeyword: matchResult.matchedKeyword,
             status: "SKIPPED_RATE_LIMIT",
+            errorMessage: "Hourly Instagram DM rate limit reached",
+          },
+          update: {
+            status: "SKIPPED_RATE_LIMIT",
+            matchedKeyword: matchResult.matchedKeyword,
+            errorMessage: "Hourly Instagram DM rate limit reached",
           },
         });
         continue;
       }
 
       if (rateLimit.shouldRequeue) {
-        // Requeue with delay
-        const queue = getDMQueue();
-        await queue.add(
+        await prisma.dmLog.upsert({
+          where: {
+            automationId_commentId: {
+              automationId: automation.id,
+              commentId,
+            },
+          },
+          create: {
+            workspaceId: automation.workspaceId,
+            automationId: automation.id,
+            instagramAccountId: automation.instagramAccountId,
+            commenterId,
+            commenterName,
+            commentText,
+            commentId,
+            matchedKeyword: matchResult.matchedKeyword,
+            status: "PENDING",
+            errorMessage: "Hourly rate limit hit; retry scheduled",
+          },
+          update: {
+            status: "PENDING",
+            matchedKeyword: matchResult.matchedKeyword,
+            errorMessage: "Hourly rate limit hit; retry scheduled",
+          },
+        });
+
+        await getDMQueue().add(
           "process-comment",
           {
             ...job.data,
@@ -113,24 +172,36 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           },
           {
             delay: rateLimit.requeueDelayMs,
+            jobId: `comment:${instagramAccountId}:${commentId}:retry:${requeueAttempt + 1}`,
           }
         );
         continue;
       }
     }
 
-    // 5. Prepare and send DM
-    if (!user.accessToken) {
-      await prisma.dmLog.create({
-        data: {
+    if (!automation.instagramAccount.accessToken) {
+      await prisma.dmLog.upsert({
+        where: {
+          automationId_commentId: {
+            automationId: automation.id,
+            commentId,
+          },
+        },
+        create: {
+          workspaceId: automation.workspaceId,
           automationId: automation.id,
-          userId: user.id,
+          instagramAccountId: automation.instagramAccountId,
           commenterId,
           commenterName,
           commentText,
-          commentId: `${automation.id}:${commentId}`,
+          commentId,
+          matchedKeyword: matchResult.matchedKeyword,
           status: "FAILED",
-          errorMessage: "No access token available",
+          errorMessage: "No Instagram access token available",
+        },
+        update: {
+          status: "FAILED",
+          errorMessage: "No Instagram access token available",
         },
       });
       continue;
@@ -138,79 +209,111 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
     let accessToken: string;
     try {
-      accessToken = decryptToken(user.accessToken);
+      accessToken = decryptToken(automation.instagramAccount.accessToken);
     } catch {
-      await prisma.dmLog.create({
-        data: {
+      await prisma.dmLog.upsert({
+        where: {
+          automationId_commentId: {
+            automationId: automation.id,
+            commentId,
+          },
+        },
+        create: {
+          workspaceId: automation.workspaceId,
           automationId: automation.id,
-          userId: user.id,
+          instagramAccountId: automation.instagramAccountId,
           commenterId,
           commenterName,
           commentText,
-          commentId: `${automation.id}:${commentId}`,
+          commentId,
+          matchedKeyword: matchResult.matchedKeyword,
           status: "FAILED",
-          errorMessage: "Failed to decrypt access token",
+          errorMessage: "Failed to decrypt Instagram access token",
+        },
+        update: {
+          status: "FAILED",
+          errorMessage: "Failed to decrypt Instagram access token",
         },
       });
       continue;
     }
 
-    // Replace merge tags in the DM message
+    await prisma.dmLog.upsert({
+      where: {
+        automationId_commentId: {
+          automationId: automation.id,
+          commentId,
+        },
+      },
+      create: {
+        workspaceId: automation.workspaceId,
+        automationId: automation.id,
+        instagramAccountId: automation.instagramAccountId,
+        commenterId,
+        commenterName,
+        commentText,
+        commentId,
+        matchedKeyword: matchResult.matchedKeyword,
+        status: "PENDING",
+        attempts: job.attemptsMade + 1,
+        errorMessage: null,
+      },
+      update: {
+        status: "PENDING",
+        attempts: job.attemptsMade + 1,
+        matchedKeyword: matchResult.matchedKeyword,
+        errorMessage: null,
+      },
+    });
+
     const dmMessage = automation.dmMessage.replace(
       /\{username\}/gi,
       commenterName ?? "there"
     );
 
     try {
-      await sendDM(accessToken, commenterId, dmMessage);
+      await sendPrivateReply(
+        accessToken,
+        automation.instagramAccount.instagramId,
+        commentId,
+        dmMessage
+      );
 
-      // Increment rate limit counter
-      await incrementDMCounter(user.instagramId);
+      await incrementDMCounter(instagramAccountId);
+      await incrementWorkspaceDMUsage(automation.workspaceId);
 
-      // Log success
-      await prisma.dmLog.create({
+      await prisma.dmLog.update({
+        where: {
+          automationId_commentId: {
+            automationId: automation.id,
+            commentId,
+          },
+        },
         data: {
-          automationId: automation.id,
-          userId: user.id,
-          commenterId,
-          commenterName,
-          commentText,
-          commentId: `${automation.id}:${commentId}`,
           status: "SENT",
           dmSentAt: new Date(),
+          errorMessage: null,
         },
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof MetaApiError
-          ? `Meta API Error ${error.code}: ${error.message}`
-          : error instanceof Error
-            ? error.message
-            : "Unknown error";
-
-      await prisma.dmLog.create({
+      await prisma.dmLog.update({
+        where: {
+          automationId_commentId: {
+            automationId: automation.id,
+            commentId,
+          },
+        },
         data: {
-          automationId: automation.id,
-          userId: user.id,
-          commenterId,
-          commenterName,
-          commentText,
-          commentId: `${automation.id}:${commentId}`,
           status: "FAILED",
-          errorMessage,
+          attempts: job.attemptsMade + 1,
+          errorMessage: formatError(error),
         },
       });
-
-      // Re-throw to trigger BullMQ retry with backoff
       throw error;
     }
   }
 }
 
-/**
- * Create and start the DM processing worker.
- * Call this once at application startup.
- */
 export function createDMWorker(): Worker<ProcessCommentJob> {
   const worker = new Worker<ProcessCommentJob>(
     "dm-processing",
@@ -219,12 +322,8 @@ export function createDMWorker(): Worker<ProcessCommentJob> {
       connection: getRedisConnection(),
       concurrency: 5,
       settings: {
-        backoffStrategy: (attemptsMade: number) => {
-          // Custom exponential backoff: 5min, 15min, 45min
-          const delay =
-            BACKOFF_DELAYS[Math.min(attemptsMade - 1, BACKOFF_DELAYS.length - 1)];
-          return delay;
-        },
+        backoffStrategy: (attemptsMade: number) =>
+          BACKOFF_DELAYS[Math.min(attemptsMade - 1, BACKOFF_DELAYS.length - 1)],
       },
     }
   );
