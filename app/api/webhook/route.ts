@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { getDMQueue } from "@/lib/queue/client";
-import { parseCommentEvents, verifyWebhookSignature } from "@/lib/meta/webhook";
+import {
+  parseCommentEvents,
+  parsePostbackEvents,
+  verifyWebhookSignature,
+} from "@/lib/meta/webhook";
 import { Prisma } from "@/app/generated/prisma/client";
 
 export async function GET(request: NextRequest) {
@@ -53,9 +57,9 @@ export async function POST(request: NextRequest) {
   });
 
   try {
-    const commentEvents = parseCommentEvents(
-      payload as Parameters<typeof parseCommentEvents>[0]
-    );
+    const webhookPayload = payload as Parameters<typeof parseCommentEvents>[0];
+    const commentEvents = parseCommentEvents(webhookPayload);
+    const postbackEvents = parsePostbackEvents(webhookPayload);
     const queue = getDMQueue();
 
     for (const event of commentEvents) {
@@ -85,6 +89,26 @@ export async function POST(request: NextRequest) {
           data: { workspaceId: account.workspaceId },
         });
       }
+    }
+
+    for (const event of postbackEvents) {
+      const isSendLink = event.postbackPayload.startsWith("SEND_LINK:");
+      const isFollowConfirm = event.postbackPayload.startsWith("FOLLOW_CONFIRM:");
+      if (!isSendLink && !isFollowConfirm) continue;
+
+      const prefix = isSendLink ? "SEND_LINK:" : "FOLLOW_CONFIRM:";
+      const automationId = event.postbackPayload.slice(prefix.length);
+      await queue.add(
+        "process-postback",
+        {
+          instagramAccountId: event.instagramAccountId,
+          senderIgsid: event.senderIgsid,
+          automationId,
+        },
+        {
+          jobId: `postback:${event.instagramAccountId}:${event.senderIgsid}:${automationId}`,
+        }
+      );
     }
 
     await prisma.webhookEvent.update({

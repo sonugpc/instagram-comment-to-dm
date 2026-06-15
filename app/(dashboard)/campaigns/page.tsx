@@ -20,6 +20,8 @@ interface Campaign {
   dmMessage: string;
   isActive: boolean;
   wholeWordMatch: boolean;
+  welcomeEnabled: boolean;
+  followCheckEnabled: boolean;
   instagramAccount: {
     username: string;
     instagramId: string;
@@ -51,6 +53,7 @@ export default function CampaignsPage() {
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [testState, setTestState] = useState<Record<string, "idle" | "loading" | "ok" | "error">>({});
 
   const fetchAutomations = useCallback(async () => {
     try {
@@ -131,6 +134,18 @@ export default function CampaignsPage() {
     } catch (err) {
       console.error("Failed to delete:", err);
     }
+  }
+
+  async function testCampaign(id: string) {
+    setTestState((prev) => ({ ...prev, [id]: "loading" }));
+    try {
+      const res = await fetch(`/api/automations/test?id=${id}`, { method: "POST" });
+      const data = await res.json();
+      setTestState((prev) => ({ ...prev, [id]: data.success ? "ok" : "error" }));
+    } catch {
+      setTestState((prev) => ({ ...prev, [id]: "error" }));
+    }
+    setTimeout(() => setTestState((prev) => ({ ...prev, [id]: "idle" })), 3000);
   }
 
   if (loading) {
@@ -340,6 +355,7 @@ export default function CampaignsPage() {
                 {/* Toggle */}
                 <button
                   onClick={() => toggleActive(auto.id, auto.isActive)}
+                  title={auto.isActive ? "Pause campaign" : "Activate campaign"}
                   className={`
                     relative w-11 h-6 rounded-full transition-colors
                     ${auto.isActive ? "bg-accent" : "bg-zinc-700"}
@@ -353,9 +369,55 @@ export default function CampaignsPage() {
                   />
                 </button>
 
+                {/* Test */}
+                <button
+                  type="button"
+                  onClick={() => void testCampaign(auto.id)}
+                  disabled={testState[auto.id] === "loading"}
+                  title="Send test DM to tester account"
+                  className={`p-2 rounded-lg transition-colors ${
+                    testState[auto.id] === "ok"
+                      ? "text-success bg-success/10"
+                      : testState[auto.id] === "error"
+                      ? "text-error bg-error/10"
+                      : "text-zinc-500 hover:text-foreground hover:bg-surface-hover"
+                  }`}
+                >
+                  {testState[auto.id] === "loading" ? (
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                  ) : testState[auto.id] === "ok" ? (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                    </svg>
+                  ) : testState[auto.id] === "error" ? (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+                    </svg>
+                  )}
+                </button>
+
+                {/* Edit */}
+                <Link
+                  href={`/campaigns/${auto.id}/edit`}
+                  title="Edit campaign"
+                  className="p-2 rounded-lg text-zinc-500 hover:text-foreground hover:bg-surface-hover transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                  </svg>
+                </Link>
+
                 {/* Delete */}
                 <button
                   onClick={() => deleteAutomation(auto.id)}
+                  title="Delete campaign"
                   className="p-2 rounded-lg text-zinc-500 hover:text-error hover:bg-error/10 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">

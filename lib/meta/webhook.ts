@@ -52,11 +52,52 @@ interface WebhookEntry {
       media_id?: string;
     };
   }>;
+  messaging?: Array<{
+    sender?: { id?: string };
+    recipient?: { id?: string };
+    timestamp?: number;
+    postback?: {
+      title?: string;
+      payload?: string;
+    };
+  }>;
 }
 
 interface WebhookPayload {
   object: string;
   entry: WebhookEntry[];
+}
+
+export interface WebhookPostbackEvent {
+  instagramAccountId: string;
+  senderIgsid: string;
+  postbackPayload: string;
+  postbackTitle: string;
+}
+
+export function parsePostbackEvents(
+  payload: WebhookPayload
+): WebhookPostbackEvent[] {
+  const events: WebhookPostbackEvent[] = [];
+
+  if (payload.object !== "instagram") return events;
+
+  for (const entry of payload.entry ?? []) {
+    for (const msg of entry.messaging ?? []) {
+      if (!msg.postback?.payload) continue;
+      const senderIgsid = msg.sender?.id;
+      if (!entry.id || !senderIgsid) continue;
+
+      events.push({
+        instagramAccountId: entry.id,
+        senderIgsid,
+        postbackPayload: msg.postback.payload,
+        postbackTitle: msg.postback.title ?? "",
+      });
+    }
+  }
+
+  return events;
 }
 
 export function parseCommentEvents(payload: WebhookPayload): WebhookCommentEvent[] {

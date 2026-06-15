@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@/app/generated/prisma/client";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { getEffectivePlan, PLAN_LIMITS } from "@/lib/billing/plans";
@@ -23,6 +24,21 @@ const createAutomationSchema = z.object({
   trackedDestinationUrl: z.string().url().optional().nullable(),
   isActive: z.boolean().optional().default(true),
   wholeWordMatch: z.boolean().optional().default(true),
+  // Public comment reply pool
+  commentReplyEnabled: z.boolean().optional().default(false),
+  commentReplies: z.array(z.string().min(1).max(300)).max(10).optional().default([]),
+  // Welcome message / rich reply
+  welcomeEnabled: z.boolean().optional().default(false),
+  welcomeMessage: z.string().max(500).optional().nullable(),
+  welcomeImageUrl: z.string().url().optional().nullable(),
+  welcomeButtonText: z.string().max(20).optional().nullable(),
+  // Follow-check gate
+  followCheckEnabled: z.boolean().optional().default(false),
+  followCheckMessage: z.string().max(500).optional().nullable(),
+  followCheckButtonText: z.string().max(20).optional().nullable(),
+  // Rich DM message type
+  dmMessageType: z.enum(["TEXT", "CARD", "CAROUSEL"] as const).optional().default("TEXT"),
+  dmMessagePayload: z.record(z.string(), z.unknown()).optional().nullable(),
 });
 
 const updateAutomationSchema = z.object({
@@ -33,6 +49,21 @@ const updateAutomationSchema = z.object({
   isActive: z.boolean().optional(),
   wholeWordMatch: z.boolean().optional(),
   reportShareEnabled: z.boolean().optional(),
+  // Public comment reply pool
+  commentReplyEnabled: z.boolean().optional(),
+  commentReplies: z.array(z.string().min(1).max(300)).max(10).optional(),
+  // Welcome message / rich reply
+  welcomeEnabled: z.boolean().optional(),
+  welcomeMessage: z.string().max(500).optional().nullable(),
+  welcomeImageUrl: z.string().url().optional().nullable(),
+  welcomeButtonText: z.string().max(20).optional().nullable(),
+  // Follow-check gate
+  followCheckEnabled: z.boolean().optional(),
+  followCheckMessage: z.string().max(500).optional().nullable(),
+  followCheckButtonText: z.string().max(20).optional().nullable(),
+  // Rich DM message type
+  dmMessageType: z.enum(["TEXT", "CARD", "CAROUSEL"] as const).optional(),
+  dmMessagePayload: z.record(z.string(), z.unknown()).optional().nullable(),
 });
 
 export async function GET(request: NextRequest) {
@@ -281,6 +312,17 @@ export async function POST(request: NextRequest) {
       dmMessage: parsed.data.dmMessage,
       isActive: parsed.data.isActive,
       wholeWordMatch: parsed.data.wholeWordMatch,
+      commentReplyEnabled: parsed.data.commentReplyEnabled,
+      commentReplies: parsed.data.commentReplies,
+      welcomeEnabled: parsed.data.welcomeEnabled,
+      welcomeMessage: parsed.data.welcomeMessage,
+      welcomeImageUrl: parsed.data.welcomeImageUrl,
+      welcomeButtonText: parsed.data.welcomeButtonText,
+      followCheckEnabled: parsed.data.followCheckEnabled,
+      followCheckMessage: parsed.data.followCheckMessage,
+      followCheckButtonText: parsed.data.followCheckButtonText,
+      dmMessageType: parsed.data.dmMessageType as "TEXT" | "CARD" | "CAROUSEL",
+      dmMessagePayload: parsed.data.dmMessagePayload as Prisma.InputJsonValue ?? Prisma.JsonNull,
       workspaceId,
       instagramAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
@@ -359,9 +401,16 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
+  const { dmMessagePayload, dmMessageType, ...rest } = parsed.data;
   const updated = await prisma.automation.update({
     where: { id: automationId },
-    data: parsed.data,
+    data: {
+      ...rest,
+      ...(dmMessageType !== undefined ? { dmMessageType: dmMessageType as "TEXT" | "CARD" | "CAROUSEL" } : {}),
+      ...(dmMessagePayload !== undefined
+        ? { dmMessagePayload: dmMessagePayload === null ? Prisma.JsonNull : (dmMessagePayload as Prisma.InputJsonValue) }
+        : {}),
+    },
   });
 
   return NextResponse.json({ success: true, data: updated });

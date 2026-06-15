@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import type { AccountOption } from "@/components/account-select";
 
+const DEV_MODE = process.env.NEXT_PUBLIC_DEV_MODE === "true";
+
 interface SettingsData {
   workspace: {
     name: string;
@@ -63,6 +65,10 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
   const [memberError, setMemberError] = useState<string | null>(null);
+  const [devToken, setDevToken] = useState("");
+  const [devTokenError, setDevTokenError] = useState<string | null>(null);
+  const [devTokenSuccess, setDevTokenSuccess] = useState<string | null>(null);
+  const [showDevForm, setShowDevForm] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -123,6 +129,28 @@ export default function SettingsPage() {
       body: JSON.stringify({ invitationId }),
     });
     await refreshMembers();
+    setBusy(null);
+  }
+
+  async function connectWithToken(event: React.FormEvent) {
+    event.preventDefault();
+    setDevTokenError(null);
+    setDevTokenSuccess(null);
+    setBusy("dev-token");
+    const res = await fetch("/api/instagram/connect-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: devToken }),
+    });
+    const payload = await res.json() as { success?: boolean; username?: string; error?: string };
+    if (payload.success) {
+      setDevTokenSuccess(`Connected @${payload.username}`);
+      setDevToken("");
+      setShowDevForm(false);
+      window.location.reload();
+    } else {
+      setDevTokenError(payload.error ?? "Failed to connect");
+    }
     setBusy(null);
   }
 
@@ -238,7 +266,7 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="mt-6 pt-4 border-t border-border flex gap-3">
+        <div className="mt-6 pt-4 border-t border-border flex gap-3 flex-wrap">
           <a
             href="/api/instagram/connect"
             className="px-4 py-2 rounded-xl text-sm font-medium transition-colors bg-accent text-white hover:bg-accent-hover"
@@ -250,7 +278,41 @@ export default function SettingsPage() {
               Reconnect an existing account or upgrade to Agency for up to 10.
             </p>
           )}
+          {DEV_MODE && (
+            <button
+              type="button"
+              onClick={() => { setShowDevForm((v) => !v); setDevTokenError(null); setDevTokenSuccess(null); }}
+              className="px-4 py-2 rounded-xl text-sm font-medium border border-dashed border-warning/50 text-warning hover:bg-warning/10 transition-colors"
+            >
+              Dev: paste token
+            </button>
+          )}
         </div>
+
+        {DEV_MODE && showDevForm && (
+          <div className="mt-4 rounded-xl border border-dashed border-warning/40 bg-warning/5 p-4">
+            <p className="text-xs font-semibold text-warning mb-3">Dev Mode — paste an Instagram access token (starts with IG)</p>
+            <form onSubmit={connectWithToken} className="flex flex-col gap-3 sm:flex-row">
+              <input
+                type="text"
+                value={devToken}
+                onChange={(e) => setDevToken(e.target.value)}
+                placeholder="IGQVJx..."
+                className="flex-1 rounded-xl border border-border bg-surface px-4 py-2 text-sm text-foreground font-mono outline-none transition-colors focus:border-warning/40"
+                required
+              />
+              <button
+                type="submit"
+                disabled={busy === "dev-token"}
+                className="rounded-xl bg-warning/20 border border-warning/40 px-4 py-2 text-sm font-semibold text-warning hover:bg-warning/30 transition-colors disabled:opacity-50"
+              >
+                {busy === "dev-token" ? "Connecting..." : "Connect"}
+              </button>
+            </form>
+            {devTokenError && <p className="mt-2 text-xs text-error">{devTokenError}</p>}
+            {devTokenSuccess && <p className="mt-2 text-xs text-success">{devTokenSuccess}</p>}
+          </div>
+        )}
       </section>
 
       <section className="glass rounded-2xl p-6">

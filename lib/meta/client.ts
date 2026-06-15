@@ -136,6 +136,160 @@ export async function sendPrivateReply(
   return handleResponse(response);
 }
 
+export interface RichReplyButton {
+  type: "postback" | "web_url";
+  title: string;
+  payload?: string;
+  url?: string;
+}
+
+export interface GenericTemplateElement {
+  title: string;
+  subtitle?: string;
+  imageUrl?: string;
+  buttons?: RichReplyButton[];
+}
+
+export async function sendRichReply(
+  accessToken: string,
+  instagramAccountId: string,
+  commentId: string,
+  options: {
+    title: string;
+    subtitle?: string;
+    imageUrl?: string;
+    buttons?: RichReplyButton[];
+  }
+): Promise<{ recipient_id: string; message_id: string }> {
+  return sendGenericTemplate(accessToken, instagramAccountId, commentId, [
+    options,
+  ]);
+}
+
+export async function sendGenericTemplate(
+  accessToken: string,
+  instagramAccountId: string,
+  commentId: string,
+  elements: GenericTemplateElement[]
+): Promise<{ recipient_id: string; message_id: string }> {
+  const mappedElements = elements.map((el) => {
+    const mapped: Record<string, unknown> = { title: el.title };
+    if (el.subtitle) mapped.subtitle = el.subtitle;
+    if (el.imageUrl) mapped.image_url = el.imageUrl;
+    if (el.buttons?.length) mapped.buttons = el.buttons;
+    return mapped;
+  });
+
+  const response = await fetch(
+    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        recipient: { comment_id: commentId },
+        message: {
+          attachment: {
+            type: "template",
+            payload: {
+              template_type: "generic",
+              elements: mappedElements,
+            },
+          },
+        },
+      }),
+    }
+  );
+
+  return handleResponse(response);
+}
+
+export async function replyToComment(
+  accessToken: string,
+  commentId: string,
+  message: string
+): Promise<{ id: string }> {
+  const response = await fetch(
+    `${instagramGraphBase()}/${commentId}/replies`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ message }),
+    }
+  );
+
+  return handleResponse(response);
+}
+
+export async function sendDirectRichMessage(
+  accessToken: string,
+  instagramAccountId: string,
+  recipientIgsid: string,
+  elements: GenericTemplateElement[]
+): Promise<{ recipient_id: string; message_id: string }> {
+  const mappedElements = elements.map((el) => {
+    const mapped: Record<string, unknown> = { title: el.title };
+    if (el.subtitle) mapped.subtitle = el.subtitle;
+    if (el.imageUrl) mapped.image_url = el.imageUrl;
+    if (el.buttons?.length) mapped.buttons = el.buttons;
+    return mapped;
+  });
+
+  const response = await fetch(
+    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        recipient: { id: recipientIgsid },
+        message: {
+          attachment: {
+            type: "template",
+            payload: {
+              template_type: "generic",
+              elements: mappedElements,
+            },
+          },
+        },
+      }),
+    }
+  );
+
+  return handleResponse(response);
+}
+
+export async function sendDirectMessage(
+  accessToken: string,
+  instagramAccountId: string,
+  recipientIgsid: string,
+  message: string
+): Promise<{ recipient_id: string; message_id: string }> {
+  const response = await fetch(
+    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        recipient: { id: recipientIgsid },
+        message: { text: message },
+      }),
+    }
+  );
+
+  return handleResponse(response);
+}
+
 export async function getMediaComments(
   accessToken: string,
   mediaId: string

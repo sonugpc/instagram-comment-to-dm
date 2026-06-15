@@ -167,6 +167,25 @@ model Automation {
   reportShareSlug    String? @unique
   reportShareEnabled Boolean @default(true)
 
+  // Public comment reply (randomly picked from pool)
+  commentReplyEnabled Boolean  @default(false)
+  commentReplies      String[]
+
+  // Welcome message / rich reply flow
+  welcomeEnabled    Boolean @default(false)
+  welcomeMessage    String?
+  welcomeImageUrl   String?
+  welcomeButtonText String?
+
+  // Follow-check gate (sends a rich card with "I'm Following" button)
+  followCheckEnabled    Boolean @default(false)
+  followCheckMessage    String?
+  followCheckButtonText String?
+
+  // Private reply message type
+  dmMessageType    DmMessageType @default(TEXT)
+  dmMessagePayload Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -328,10 +347,17 @@ enum SubscriptionStatus {
   CANCELED
 }
 
+enum DmMessageType {
+  TEXT
+  CARD
+  CAROUSEL
+}
+
 enum DmStatus {
   PENDING
   SENT
   FAILED
+  WELCOME_SENT
   SKIPPED_DEDUP
   SKIPPED_RATE_LIMIT
   SKIPPED_PLAN_LIMIT

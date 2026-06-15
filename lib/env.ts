@@ -45,3 +45,7 @@ export const serverEnvSchema = z.object({
 export function validateCoreEnv() {
   return serverEnvSchema.parse(process.env);
 }
+
+export function getDmTesterIgsid(): string | null {
+  return process.env.INSTAGRAM_TESTER_ID || null;
+}

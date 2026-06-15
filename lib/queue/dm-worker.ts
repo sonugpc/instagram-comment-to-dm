@@ -1,7 +1,20 @@
 import { Worker, type Job } from "bullmq";
-import { getDMQueue, getRedisConnection, type ProcessCommentJob } from "./client";
+import {
+  getDMQueue,
+  getRedisConnection,
+  type ProcessCommentJob,
+  type ProcessPostbackJob,
+} from "./client";
 import { prisma } from "@/lib/db/client";
-import { MetaApiError, sendPrivateReply } from "@/lib/meta/client";
+import {
+  MetaApiError,
+  sendPrivateReply,
+  sendRichReply,
+  sendGenericTemplate,
+  sendDirectMessage,
+  replyToComment,
+  type GenericTemplateElement,
+} from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 import { reserveDMSlot } from "@/lib/utils/rate-limiter";
@@ -267,19 +280,143 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       }
     }
 
-    const dmMessage = renderMessageWithTracking({
-      message: automation.dmMessage,
-      commenterName,
-      trackedLinks: automation.trackedLinks,
-    });
+    // Public comment reply (randomly picked from pool)
+    if (automation.commentReplyEnabled && automation.commentReplies.length > 0) {
+      const pick = automation.commentReplies[
+        Math.floor(Math.random() * automation.commentReplies.length)
+      ];
+      const rendered = pick.replace(/\{username\}/gi, commenterName ?? "there");
+      try {
+        await replyToComment(accessToken, commentId, rendered);
+      } catch {
+        // Non-fatal — log but continue with the DM flow
+      }
+    }
 
+    // Follow-check gate: send rich card with "I'm Following" button
+    if (automation.followCheckEnabled) {
+      const followMsg =
+        automation.followCheckMessage ??
+        `Hey ${commenterName ?? "there"}! To receive this content, please follow our account first 💙`;
+
+      try {
+        await sendRichReply(
+          accessToken,
+          automation.instagramAccount.instagramId,
+          commentId,
+          {
+            title: followMsg,
+            buttons: [
+              {
+                type: "postback",
+                title: automation.followCheckButtonText ?? "I'm Following ✅",
+                payload: `FOLLOW_CONFIRM:${automation.id}`,
+              },
+            ],
+          }
+        );
+        await prisma.dmLog.update({
+          where: {
+            automationId_commentId: { automationId: automation.id, commentId },
+          },
+          data: { status: "WELCOME_SENT", dmSentAt: new Date(), errorMessage: null },
+        });
+      } catch (error) {
+        await releaseWorkspaceDMReservation(automation.workspaceId, usage.periodStart);
+        await prisma.dmLog.update({
+          where: {
+            automationId_commentId: { automationId: automation.id, commentId },
+          },
+          data: { status: "FAILED", attempts: job.attemptsMade + 1, errorMessage: formatError(error) },
+        });
+        throw error;
+      }
+      continue;
+    }
+
+    // Welcome + Send me Link flow: send rich card with button, record WELCOME_SENT
+    if (automation.welcomeEnabled) {
+      try {
+        await sendRichReply(
+          accessToken,
+          automation.instagramAccount.instagramId,
+          commentId,
+          {
+            title:
+              automation.welcomeMessage ??
+              `Hey ${commenterName ?? "there"}! Click the button to get your link.`,
+            imageUrl: automation.welcomeImageUrl ?? undefined,
+            buttons: [
+              {
+                type: "postback",
+                title: automation.welcomeButtonText ?? "Send me Link",
+                payload: `SEND_LINK:${automation.id}`,
+              },
+            ],
+          }
+        );
+        await prisma.dmLog.update({
+          where: {
+            automationId_commentId: { automationId: automation.id, commentId },
+          },
+          data: { status: "WELCOME_SENT", dmSentAt: new Date(), errorMessage: null },
+        });
+      } catch (error) {
+        await releaseWorkspaceDMReservation(automation.workspaceId, usage.periodStart);
+        await prisma.dmLog.update({
+          where: {
+            automationId_commentId: { automationId: automation.id, commentId },
+          },
+          data: { status: "FAILED", attempts: job.attemptsMade + 1, errorMessage: formatError(error) },
+        });
+        throw error;
+      }
+      continue;
+    }
+
+    // Send the actual private reply (text, card, or carousel)
     try {
-      await sendPrivateReply(
-        accessToken,
-        automation.instagramAccount.instagramId,
-        commentId,
-        dmMessage
-      );
+      if (automation.dmMessageType === "CARD" && automation.dmMessagePayload) {
+        const card = automation.dmMessagePayload as {
+          title: string; subtitle?: string; imageUrl?: string;
+          buttons?: Array<{ type: "web_url"; title: string; url: string }>;
+        };
+        const element: GenericTemplateElement = {
+          title: renderMessageWithTracking({ message: card.title, commenterName, trackedLinks: automation.trackedLinks }),
+          subtitle: card.subtitle
+            ? renderMessageWithTracking({ message: card.subtitle, commenterName, trackedLinks: automation.trackedLinks })
+            : undefined,
+          imageUrl: card.imageUrl,
+          buttons: card.buttons,
+        };
+        await sendGenericTemplate(accessToken, automation.instagramAccount.instagramId, commentId, [element]);
+      } else if (automation.dmMessageType === "CAROUSEL" && automation.dmMessagePayload) {
+        const payload = automation.dmMessagePayload as {
+          cards: Array<{ title: string; subtitle?: string; imageUrl?: string;
+            buttons?: Array<{ type: "web_url"; title: string; url: string }> }>;
+        };
+        const elements: GenericTemplateElement[] = payload.cards.map((card) => ({
+          title: renderMessageWithTracking({ message: card.title, commenterName, trackedLinks: automation.trackedLinks }),
+          subtitle: card.subtitle
+            ? renderMessageWithTracking({ message: card.subtitle, commenterName, trackedLinks: automation.trackedLinks })
+            : undefined,
+          imageUrl: card.imageUrl,
+          buttons: card.buttons,
+        }));
+        await sendGenericTemplate(accessToken, automation.instagramAccount.instagramId, commentId, elements);
+      } else {
+        const dmMessage = renderMessageWithTracking({
+          message: automation.dmMessage,
+          commenterName,
+          trackedLinks: automation.trackedLinks,
+        });
+        await sendPrivateReply(
+          accessToken,
+          automation.instagramAccount.instagramId,
+          commentId,
+          dmMessage
+        );
+      }
 
       await prisma.dmLog.update({
         where: {
@@ -315,6 +452,80 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       });
       throw error;
     }
+  }
+}
+
+async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
+  const { automationId, senderIgsid } = job.data;
+
+  const automation = await prisma.automation.findUnique({
+    where: { id: automationId },
+    include: {
+      instagramAccount: true,
+      trackedLinks: {
+        select: { slug: true, destinationUrl: true },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  if (!automation || !automation.isActive) return;
+
+  if (!automation.instagramAccount.accessToken) return;
+
+  let accessToken: string;
+  try {
+    accessToken = decryptToken(automation.instagramAccount.accessToken);
+  } catch {
+    return;
+  }
+
+  // Find the pending welcome DM log for this sender so we can mark it sent
+  const pendingLog = await prisma.dmLog.findFirst({
+    where: {
+      automationId,
+      commenterId: senderIgsid,
+      status: "WELCOME_SENT",
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const usage = await reserveWorkspaceDMSend(automation.workspaceId);
+  if (!usage.allowed) return;
+
+  const dmMessage = renderMessageWithTracking({
+    message: automation.dmMessage,
+    commenterName: pendingLog?.commenterName ?? undefined,
+    trackedLinks: automation.trackedLinks,
+  });
+
+  try {
+    await sendDirectMessage(
+      accessToken,
+      automation.instagramAccount.instagramId,
+      senderIgsid,
+      dmMessage
+    );
+
+    if (pendingLog) {
+      await prisma.dmLog.update({
+        where: { id: pendingLog.id },
+        data: { status: "SENT", dmSentAt: new Date(), errorMessage: null },
+      });
+    }
+  } catch (error) {
+    await releaseWorkspaceDMReservation(automation.workspaceId, usage.periodStart);
+    if (pendingLog) {
+      await prisma.dmLog.update({
+        where: { id: pendingLog.id },
+        data: {
+          status: "FAILED",
+          attempts: job.attemptsMade + 1,
+          errorMessage: formatError(error),
+        },
+      });
+    }
+    throw error;
   }
 }
 
@@ -361,10 +572,18 @@ async function recordWorkerFailure(
   }
 }
 
-export function createDMWorker(): Worker<ProcessCommentJob> {
-  const worker = new Worker<ProcessCommentJob>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function dispatchJob(job: Job<any>): Promise<void> {
+  if (job.name === "process-postback") {
+    return processPostback(job as Job<ProcessPostbackJob>);
+  }
+  return processComment(job as Job<ProcessCommentJob>);
+}
+
+export function createDMWorker(): Worker {
+  const worker = new Worker(
     "dm-processing",
-    processComment,
+    dispatchJob,
     {
       connection: getRedisConnection(),
       concurrency: 5,

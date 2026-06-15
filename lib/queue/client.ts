@@ -30,11 +30,21 @@ export interface ProcessCommentJob {
   requeueAttempt?: number;
 }
 
-let dmQueue: Queue<ProcessCommentJob> | null = null;
+export interface ProcessPostbackJob {
+  instagramAccountId: string;
+  senderIgsid: string;
+  automationId: string;
+}
 
-export function getDMQueue(): Queue<ProcessCommentJob> {
+export type AnyDMJob = ProcessCommentJob | ProcessPostbackJob;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let dmQueue: Queue<any> | null = null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function getDMQueue(): Queue<any> {
   if (!dmQueue) {
-    dmQueue = new Queue<ProcessCommentJob>("dm-processing", {
+    dmQueue = new Queue("dm-processing", {
       connection: getRedisConnection(),
       defaultJobOptions: {
         removeOnComplete: { count: 1000 }, // Keep last 1000 completed jobs
