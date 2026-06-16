@@ -607,13 +607,13 @@ export function createDMWorker(): Worker {
   });
 
   worker.on("error", (err) => {
-    console.error("[DM Worker] Worker error:", err.message);
+    console.error("[DM Worker] Worker error:", err.message || err.toString(), err);
     void prisma.operationalEvent
       .create({
         data: {
           source: "WORKER",
           level: "ERROR",
-          message: `DM worker process error: ${err.message}`,
+          message: `DM worker process error: ${err.message || err.toString()}`,
           payload: { name: err.name },
         },
       })
