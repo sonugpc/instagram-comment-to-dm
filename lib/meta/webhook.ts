@@ -14,6 +14,10 @@ export function verifyWebhookSignature(
   const expectedSignature =
     "sha256=" + createHmac("sha256", appSecret).update(payload).digest("hex");
 
+  console.log("[Webhook] received sig :", signature);
+  console.log("[Webhook] expected sig :", expectedSignature);
+  console.log("[Webhook] body length  :", payload.length);
+
   try {
     return timingSafeEqual(
       Buffer.from(signature),
