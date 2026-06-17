@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import KeywordInput from "@/components/keyword-input";
-import PostPicker from "@/components/post-picker";
 import RichMessageBuilder from "@/components/rich-message-builder";
 import { replaceUrlWithTrackedPlaceholder } from "@/lib/tracking/message";
 import { emptyCard, type DmCard, type DmMessageType } from "@/lib/types/dm-message";
@@ -12,9 +11,6 @@ interface CampaignDetail {
   id: string;
   name: string;
   goal: string | null;
-  postId: string;
-  postUrl: string | null;
-  instagramAccountId: string;
   keywords: string[];
   dmMessage: string;
   isActive: boolean;
@@ -45,9 +41,6 @@ export default function EditCampaignPage() {
 
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
-  const [postId, setPostId] = useState<string | null>(null);
-  const [postUrl, setPostUrl] = useState<string | undefined>();
-  const [selectedAccountId, setSelectedAccountId] = useState("");
   const [keywords, setKeywords] = useState<string[]>([]);
   const [dmMessage, setDmMessage] = useState("");
   const [wholeWordMatch, setWholeWordMatch] = useState(true);
@@ -89,9 +82,6 @@ export default function EditCampaignPage() {
 
         setName(campaign.name);
         setGoal(campaign.goal ?? "");
-        setPostId(campaign.postId);
-        setPostUrl(campaign.postUrl ?? undefined);
-        setSelectedAccountId(campaign.instagramAccountId);
         setKeywords(campaign.keywords);
         setInstagramUsername(campaign.instagramAccount.username);
         setWholeWordMatch(campaign.wholeWordMatch);
@@ -159,8 +149,6 @@ export default function EditCampaignPage() {
         body: JSON.stringify({
           name,
           goal: goal || null,
-          postId: postId ?? undefined,
-          postUrl: postUrl ?? null,
           keywords,
           dmMessage: getDmMessagePreview(),
           wholeWordMatch,
@@ -241,26 +229,6 @@ export default function EditCampaignPage() {
           <div className="rounded-xl border border-border bg-surface/50 px-4 py-3 text-sm text-muted">
             @{instagramUsername}
             <span className="ml-2 text-xs text-zinc-600">(cannot be changed after creation)</span>
-          </div>
-        </div>
-
-        {/* Post Picker */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-foreground">
-            Campaign Post Or Reel
-          </label>
-          <p className="text-xs text-muted mb-3">
-            The Instagram post or reel that triggers this campaign.
-          </p>
-          <div className="glass rounded-xl p-4">
-            <PostPicker
-              selectedPostId={postId}
-              instagramAccountId={selectedAccountId}
-              onSelect={(id, url) => {
-                setPostId(id);
-                setPostUrl(url);
-              }}
-            />
           </div>
         </div>
 

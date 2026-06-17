@@ -52,10 +52,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
   const automations = await prisma.automation.findMany({
     where: {
-      OR: [
-        { postId: mediaId },
-        { postId: `${instagramAccountId}_${mediaId}` },
-      ],
+      postId: mediaId,
       isActive: true,
       instagramAccount: {
         instagramId: instagramAccountId,
@@ -77,18 +74,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
   console.log(`[Worker] Found ${automations.length} active automation(s) for mediaId: ${mediaId}`);
   if (automations.length === 0) {
-    const allForAccount = await prisma.automation.findMany({
-      where: { instagramAccount: { instagramId: instagramAccountId } },
-      select: { id: true, name: true, postId: true, isActive: true },
-    });
-    console.log(`[Worker] Searched postId values: ["${mediaId}", "${instagramAccountId}_${mediaId}"]`);
-    console.log(`[Worker] Automations matching instagramId ${instagramAccountId}: ${JSON.stringify(allForAccount)}`);
-    if (allForAccount.length === 0) {
-      const allAccounts = await prisma.instagramAccount.findMany({
-        select: { instagramId: true, username: true },
-      });
-      console.log(`[Worker] No account found for instagramId: ${instagramAccountId}. All accounts in DB: ${JSON.stringify(allAccounts)}`);
-    }
+    console.log(`[Worker] No automations matched — check postId matches mediaId, and campaign is active`);
   }
 
   for (const automation of automations) {

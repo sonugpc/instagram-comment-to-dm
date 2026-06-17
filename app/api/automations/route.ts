@@ -44,8 +44,6 @@ const createAutomationSchema = z.object({
 const updateAutomationSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   goal: z.string().min(1).max(120).optional().nullable(),
-  postId: z.string().min(1).optional(),
-  postUrl: z.string().url().optional().nullable(),
   keywords: z.array(z.string().min(1).max(50)).min(1).max(10).optional(),
   dmMessage: z.string().min(1).max(1000).optional(),
   isActive: z.boolean().optional(),
