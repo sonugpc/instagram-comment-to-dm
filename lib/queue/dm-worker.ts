@@ -48,6 +48,8 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
   } = job.data;
   const requeueAttempt = job.data.requeueAttempt ?? 0;
 
+  console.log(`[Worker] processComment start — jobId: ${job.id} | igAccountId: ${instagramAccountId} | mediaId: ${mediaId} | commentId: ${commentId} | text: "${commentText}" | from: ${commenterId} (${commenterName})`);
+
   const automations = await prisma.automation.findMany({
     where: {
       postId: mediaId,
@@ -70,7 +72,14 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     orderBy: { createdAt: "asc" },
   });
 
+  console.log(`[Worker] Found ${automations.length} active automation(s) for mediaId: ${mediaId}`);
+  if (automations.length === 0) {
+    console.log(`[Worker] No automations matched — check postId matches mediaId, and campaign is active`);
+  }
+
   for (const automation of automations) {
+    console.log(`[Worker] Checking automation: "${automation.name}" (${automation.id}) | keywords: [${automation.keywords.join(", ")}] | wholeWord: ${automation.wholeWordMatch}`);
+
     const matchResult = matchKeywords(
       commentText,
       automation.keywords,
@@ -78,8 +87,10 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     );
 
     if (!matchResult.matched) {
+      console.log(`[Worker] Keyword NOT matched for automation "${automation.name}" — comment: "${commentText}"`);
       continue;
     }
+    console.log(`[Worker] Keyword MATCHED: "${matchResult.matchedKeyword}" in automation "${automation.name}"`);
 
     const existingLog = await prisma.dmLog.findUnique({
       where: {
@@ -95,10 +106,12 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       existingLog?.status === "SKIPPED_PLAN_LIMIT" ||
       existingLog?.status === "SKIPPED_RATE_LIMIT"
     ) {
+      console.log(`[Worker] Skipping — already processed with status: ${existingLog.status}`);
       continue;
     }
 
     if (!automation.instagramAccount.accessToken) {
+      console.log(`[Worker] No access token for Instagram account ${instagramAccountId}`);
       await prisma.dmLog.upsert({
         where: {
           automationId_commentId: {
@@ -129,6 +142,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     let accessToken: string;
     try {
       accessToken = decryptToken(automation.instagramAccount.accessToken);
+      console.log(`[Worker] Access token decrypted OK`);
     } catch {
       await prisma.dmLog.upsert({
         where: {
@@ -186,7 +200,9 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     });
 
     const usage = await reserveWorkspaceDMSend(automation.workspaceId);
+    console.log(`[Worker] Plan usage check — allowed: ${usage.allowed} | limit: ${usage.limit}`);
     if (!usage.allowed) {
+      console.log(`[Worker] SKIPPED — monthly DM limit reached (${usage.limit})`);
       await prisma.dmLog.update({
         where: {
           automationId_commentId: {
@@ -206,7 +222,9 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     let rateLimit;
     try {
       rateLimit = await reserveDMSlot(instagramAccountId, requeueAttempt);
+      console.log(`[Worker] Rate limit check — allowed: ${rateLimit.allowed}`);
     } catch (error) {
+      console.error(`[Worker] Rate limiter threw:`, formatError(error));
       await releaseWorkspaceDMReservation(
         automation.workspaceId,
         usage.periodStart
@@ -234,6 +252,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       );
 
       if (rateLimit.shouldSkip) {
+        console.log(`[Worker] SKIPPED — hourly rate limit reached`);
         await prisma.dmLog.update({
           where: {
             automationId_commentId: {
@@ -251,6 +270,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       }
 
       if (rateLimit.shouldRequeue) {
+        console.log(`[Worker] Requeueing — rate limit hit, delay: ${rateLimit.requeueDelayMs}ms`);
         await prisma.dmLog.update({
           where: {
             automationId_commentId: {
@@ -286,11 +306,15 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         Math.floor(Math.random() * automation.commentReplies.length)
       ];
       const rendered = pick.replace(/\{username\}/gi, commenterName ?? "there");
+      console.log(`[Worker] Sending public comment reply: "${rendered}"`);
       try {
         await replyToComment(accessToken, commentId, rendered);
-      } catch {
-        // Non-fatal — log but continue with the DM flow
+        console.log(`[Worker] Public comment reply sent OK`);
+      } catch (err) {
+        console.error(`[Worker] Public comment reply failed (non-fatal):`, formatError(err));
       }
+    } else {
+      console.log(`[Worker] commentReplyEnabled: ${automation.commentReplyEnabled} | replies count: ${automation.commentReplies.length} — skipping public reply`);
     }
 
     // Follow-check gate: send rich card with "I'm Following" button
@@ -299,6 +323,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         automation.followCheckMessage ??
         `Hey ${commenterName ?? "there"}! To receive this content, please follow our account first 💙`;
 
+      console.log(`[Worker] Follow gate enabled — sending rich card with button`);
       try {
         await sendRichReply(
           accessToken,
@@ -315,6 +340,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
             ],
           }
         );
+        console.log(`[Worker] Follow gate card sent OK — waiting for postback`);
         await prisma.dmLog.update({
           where: {
             automationId_commentId: { automationId: automation.id, commentId },
@@ -322,6 +348,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           data: { status: "WELCOME_SENT", dmSentAt: new Date(), errorMessage: null },
         });
       } catch (error) {
+        console.error(`[Worker] Follow gate sendRichReply failed:`, formatError(error));
         await releaseWorkspaceDMReservation(automation.workspaceId, usage.periodStart);
         await prisma.dmLog.update({
           where: {
@@ -336,6 +363,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
     // Welcome + Send me Link flow: send rich card with button, record WELCOME_SENT
     if (automation.welcomeEnabled) {
+      console.log(`[Worker] Welcome flow enabled — sending rich card with "Send me Link" button`);
       try {
         await sendRichReply(
           accessToken,
@@ -355,6 +383,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
             ],
           }
         );
+        console.log(`[Worker] Welcome card sent OK — waiting for postback`);
         await prisma.dmLog.update({
           where: {
             automationId_commentId: { automationId: automation.id, commentId },
@@ -362,6 +391,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           data: { status: "WELCOME_SENT", dmSentAt: new Date(), errorMessage: null },
         });
       } catch (error) {
+        console.error(`[Worker] Welcome sendRichReply failed:`, formatError(error));
         await releaseWorkspaceDMReservation(automation.workspaceId, usage.periodStart);
         await prisma.dmLog.update({
           where: {
@@ -375,6 +405,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     }
 
     // Send the actual private reply (text, card, or carousel)
+    console.log(`[Worker] Sending content DM — type: ${automation.dmMessageType}`);
     try {
       if (automation.dmMessageType === "CARD" && automation.dmMessagePayload) {
         const card = automation.dmMessagePayload as {
@@ -389,6 +420,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           imageUrl: card.imageUrl,
           buttons: card.buttons,
         };
+        console.log(`[Worker] Sending CARD to commentId: ${commentId}`);
         await sendGenericTemplate(accessToken, automation.instagramAccount.instagramId, commentId, [element]);
       } else if (automation.dmMessageType === "CAROUSEL" && automation.dmMessagePayload) {
         const payload = automation.dmMessagePayload as {
@@ -403,6 +435,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           imageUrl: card.imageUrl,
           buttons: card.buttons,
         }));
+        console.log(`[Worker] Sending CAROUSEL (${elements.length} cards) to commentId: ${commentId}`);
         await sendGenericTemplate(accessToken, automation.instagramAccount.instagramId, commentId, elements);
       } else {
         const dmMessage = renderMessageWithTracking({
@@ -410,6 +443,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commenterName,
           trackedLinks: automation.trackedLinks,
         });
+        console.log(`[Worker] Sending TEXT private reply to commentId: ${commentId} | message: "${dmMessage}"`);
         await sendPrivateReply(
           accessToken,
           automation.instagramAccount.instagramId,
@@ -418,6 +452,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         );
       }
 
+      console.log(`[Worker] DM sent OK — updating log to SENT`);
       await prisma.dmLog.update({
         where: {
           automationId_commentId: {
@@ -432,6 +467,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         },
       });
     } catch (error) {
+      console.error(`[Worker] DM send FAILED:`, formatError(error));
       await releaseWorkspaceDMReservation(
         automation.workspaceId,
         usage.periodStart
@@ -453,10 +489,12 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       throw error;
     }
   }
+  console.log(`[Worker] processComment done — jobId: ${job.id}`);
 }
 
 async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
   const { automationId, senderIgsid } = job.data;
+  console.log(`[Worker] processPostback start — jobId: ${job.id} | automationId: ${automationId} | senderIgsid: ${senderIgsid}`);
 
   const automation = await prisma.automation.findUnique({
     where: { id: automationId },
@@ -469,14 +507,23 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     },
   });
 
-  if (!automation || !automation.isActive) return;
+  if (!automation || !automation.isActive) {
+    console.log(`[Worker] Postback aborted — automation not found or inactive: ${automationId}`);
+    return;
+  }
+  console.log(`[Worker] Automation found: "${automation.name}"`);
 
-  if (!automation.instagramAccount.accessToken) return;
+  if (!automation.instagramAccount.accessToken) {
+    console.log(`[Worker] Postback aborted — no access token`);
+    return;
+  }
 
   let accessToken: string;
   try {
     accessToken = decryptToken(automation.instagramAccount.accessToken);
+    console.log(`[Worker] Access token decrypted OK`);
   } catch {
+    console.error(`[Worker] Postback aborted — failed to decrypt access token`);
     return;
   }
 
@@ -489,15 +536,21 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     },
     orderBy: { createdAt: "desc" },
   });
+  console.log(`[Worker] Pending WELCOME_SENT log: ${pendingLog ? `found (id: ${pendingLog.id})` : "NOT FOUND"}`);
 
   const usage = await reserveWorkspaceDMSend(automation.workspaceId);
-  if (!usage.allowed) return;
+  console.log(`[Worker] Postback plan usage — allowed: ${usage.allowed}`);
+  if (!usage.allowed) {
+    console.log(`[Worker] Postback aborted — plan limit reached`);
+    return;
+  }
 
   const dmMessage = renderMessageWithTracking({
     message: automation.dmMessage,
     commenterName: pendingLog?.commenterName ?? undefined,
     trackedLinks: automation.trackedLinks,
   });
+  console.log(`[Worker] Sending DM to senderIgsid: ${senderIgsid} | message: "${dmMessage}"`);
 
   try {
     await sendDirectMessage(
@@ -506,14 +559,17 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
       senderIgsid,
       dmMessage
     );
+    console.log(`[Worker] Postback DM sent OK`);
 
     if (pendingLog) {
       await prisma.dmLog.update({
         where: { id: pendingLog.id },
         data: { status: "SENT", dmSentAt: new Date(), errorMessage: null },
       });
+      console.log(`[Worker] DM log updated to SENT`);
     }
   } catch (error) {
+    console.error(`[Worker] Postback DM send FAILED:`, formatError(error));
     await releaseWorkspaceDMReservation(automation.workspaceId, usage.periodStart);
     if (pendingLog) {
       await prisma.dmLog.update({

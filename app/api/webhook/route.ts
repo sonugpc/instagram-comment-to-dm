@@ -25,20 +25,26 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  console.log("[Webhook] POST received");
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
+  console.log("[Webhook] body length:", rawBody.length, "| has signature:", !!signature);
 
   if (!verifyWebhookSignature(rawBody, signature)) {
+    console.log("[Webhook] Signature verification FAILED");
     return NextResponse.json(
       { success: false, error: "Invalid signature" },
       { status: 401 }
     );
   }
+  console.log("[Webhook] Signature OK");
 
   let payload: unknown;
   try {
     payload = JSON.parse(rawBody);
+    console.log("[Webhook] Raw payload:", JSON.stringify(payload));
   } catch {
+    console.log("[Webhook] JSON parse failed");
     return NextResponse.json(
       { success: false, error: "Invalid JSON" },
       { status: 400 }
@@ -55,19 +61,26 @@ export async function POST(request: NextRequest) {
       status: "PENDING",
     },
   });
+  console.log("[Webhook] Event saved to DB, id:", webhookEvent.id);
 
   try {
     const webhookPayload = payload as Parameters<typeof parseCommentEvents>[0];
     const commentEvents = parseCommentEvents(webhookPayload);
     const postbackEvents = parsePostbackEvents(webhookPayload);
+    console.log("[Webhook] Parsed comment events:", commentEvents.length, "| postback events:", postbackEvents.length);
+
     const queue = getDMQueue();
 
     for (const event of commentEvents) {
+      console.log("[Webhook] Comment event — igAccountId:", event.instagramAccountId, "| mediaId:", event.mediaId, "| commentId:", event.commentId, "| text:", event.commentText, "| from:", event.commenterId, event.commenterName);
+
       const account = await prisma.instagramAccount.findUnique({
         where: { instagramId: event.instagramAccountId },
         select: { workspaceId: true },
       });
+      console.log("[Webhook] Instagram account lookup:", account ? `found, workspaceId: ${account.workspaceId}` : "NOT FOUND in DB");
 
+      const jobId = `comment:${event.instagramAccountId}:${event.commentId}`;
       await queue.add(
         "process-comment",
         {
@@ -78,10 +91,9 @@ export async function POST(request: NextRequest) {
           commenterName: event.commenterName,
           mediaId: event.mediaId,
         },
-        {
-          jobId: `comment:${event.instagramAccountId}:${event.commentId}`,
-        }
+        { jobId }
       );
+      console.log("[Webhook] Job enqueued:", jobId);
 
       if (account) {
         await prisma.webhookEvent.update({
@@ -92,12 +104,17 @@ export async function POST(request: NextRequest) {
     }
 
     for (const event of postbackEvents) {
+      console.log("[Webhook] Postback event — payload:", event.postbackPayload, "| sender:", event.senderIgsid);
       const isSendLink = event.postbackPayload.startsWith("SEND_LINK:");
       const isFollowConfirm = event.postbackPayload.startsWith("FOLLOW_CONFIRM:");
-      if (!isSendLink && !isFollowConfirm) continue;
+      if (!isSendLink && !isFollowConfirm) {
+        console.log("[Webhook] Postback skipped — unknown prefix");
+        continue;
+      }
 
       const prefix = isSendLink ? "SEND_LINK:" : "FOLLOW_CONFIRM:";
       const automationId = event.postbackPayload.slice(prefix.length);
+      const jobId = `postback:${event.instagramAccountId}:${event.senderIgsid}:${automationId}`;
       await queue.add(
         "process-postback",
         {
@@ -105,30 +122,24 @@ export async function POST(request: NextRequest) {
           senderIgsid: event.senderIgsid,
           automationId,
         },
-        {
-          jobId: `postback:${event.instagramAccountId}:${event.senderIgsid}:${automationId}`,
-        }
+        { jobId }
       );
+      console.log("[Webhook] Postback job enqueued:", jobId);
     }
 
     await prisma.webhookEvent.update({
       where: { id: webhookEvent.id },
-      data: {
-        status: "PROCESSED",
-        processedAt: new Date(),
-      },
+      data: { status: "PROCESSED", processedAt: new Date() },
     });
+    console.log("[Webhook] Done — event marked PROCESSED");
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("[Webhook] Processing error:", message, error);
     await prisma.webhookEvent.update({
       where: { id: webhookEvent.id },
-      data: {
-        status: "FAILED",
-        errorMessage: message,
-        processedAt: new Date(),
-      },
+      data: { status: "FAILED", errorMessage: message, processedAt: new Date() },
     });
 
     return NextResponse.json(
