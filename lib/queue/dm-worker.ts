@@ -81,8 +81,14 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       where: { instagramAccount: { instagramId: instagramAccountId } },
       select: { id: true, name: true, postId: true, isActive: true },
     });
-    console.log(`[Worker] Diagnostics — all automations for account ${instagramAccountId}: ${JSON.stringify(allForAccount)}`);
     console.log(`[Worker] Searched postId values: ["${mediaId}", "${instagramAccountId}_${mediaId}"]`);
+    console.log(`[Worker] Automations matching instagramId ${instagramAccountId}: ${JSON.stringify(allForAccount)}`);
+    if (allForAccount.length === 0) {
+      const allAccounts = await prisma.instagramAccount.findMany({
+        select: { instagramId: true, username: true },
+      });
+      console.log(`[Worker] No account found for instagramId: ${instagramAccountId}. All accounts in DB: ${JSON.stringify(allAccounts)}`);
+    }
   }
 
   for (const automation of automations) {
