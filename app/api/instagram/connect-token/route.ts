@@ -36,12 +36,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const userInfo = await getUserInfo(token);
+    const instagramId = userInfo.ig_id ?? userInfo.id;
 
     const connection = await canConnectInstagramAccount({
       workspaceId: context.workspaceId,
       plan: membership.workspace.plan,
       subscriptionStatus: membership.workspace.subscriptionStatus,
-      instagramId: userInfo.id,
+      instagramId,
     });
 
     if (!connection.allowed) {
@@ -58,17 +59,17 @@ export async function POST(request: NextRequest) {
 
     let webhookSubscribed = false;
     try {
-      const subscription = await subscribeInstagramAccountToWebhooks(userInfo.id, token);
+      const subscription = await subscribeInstagramAccountToWebhooks(instagramId, token);
       webhookSubscribed = Boolean(subscription.success);
     } catch {
       // Webhook subscription will fail locally without a public tunnel URL — that's expected
     }
 
     await prisma.instagramAccount.upsert({
-      where: { instagramId: userInfo.id },
+      where: { instagramId },
       create: {
         workspaceId: context.workspaceId,
-        instagramId: userInfo.id,
+        instagramId,
         username: userInfo.username,
         name: userInfo.name,
         accessToken: encryptedToken,

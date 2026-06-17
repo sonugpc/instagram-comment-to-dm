@@ -58,11 +58,12 @@ export async function GET(request: NextRequest) {
     const { accessToken: longLivedToken, expiresIn } =
       await getLongLivedToken(shortLivedToken);
     const userInfo = await getUserInfo(longLivedToken);
+    const instagramId = userInfo.ig_id ?? userInfo.id;
     const connection = await canConnectInstagramAccount({
       workspaceId: state.workspaceId,
       plan: membership.workspace.plan,
       subscriptionStatus: membership.workspace.subscriptionStatus,
-      instagramId: userInfo.id,
+      instagramId,
     });
 
     if (!connection.allowed) {
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
     let webhookSubscribed = false;
     try {
       const subscription = await subscribeInstagramAccountToWebhooks(
-        userInfo.id,
+        instagramId,
         longLivedToken
       );
       webhookSubscribed = Boolean(subscription.success);
@@ -91,10 +92,10 @@ export async function GET(request: NextRequest) {
     }
 
     await prisma.instagramAccount.upsert({
-      where: { instagramId: userInfo.id },
+      where: { instagramId },
       create: {
         workspaceId: state.workspaceId,
-        instagramId: userInfo.id,
+        instagramId,
         username: userInfo.username,
         name: userInfo.name,
         accessToken: encryptedToken,

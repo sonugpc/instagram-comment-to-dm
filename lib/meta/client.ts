@@ -53,6 +53,7 @@ interface GraphApiError {
 
 export interface InstagramUser {
   id: string;
+  ig_id?: string;
   username: string;
   name?: string;
 }
@@ -305,7 +306,7 @@ export async function getMediaComments(
 
 export async function getUserInfo(accessToken: string): Promise<InstagramUser> {
   const url = new URL(`${instagramGraphBase()}/me`);
-  url.searchParams.set("fields", "id,username,name");
+  url.searchParams.set("fields", "id,ig_id,username,name");
   url.searchParams.set("access_token", accessToken);
 
   const response = await fetch(url.toString());

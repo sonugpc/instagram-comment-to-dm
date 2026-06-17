@@ -78,7 +78,15 @@ export async function POST(request: NextRequest) {
         where: { instagramId: event.instagramAccountId },
         select: { workspaceId: true },
       });
-      console.log("[Webhook] Instagram account lookup:", account ? `found, workspaceId: ${account.workspaceId}` : "NOT FOUND in DB");
+      if (account) {
+        console.log("[Webhook] Instagram account lookup: FOUND workspaceId:", account.workspaceId);
+      } else {
+        const allAccounts = await prisma.instagramAccount.findMany({
+          select: { instagramId: true, username: true },
+        });
+        console.log("[Webhook] Instagram account NOT FOUND for instagramId:", event.instagramAccountId);
+        console.log("[Webhook] All instagramIds in DB:", JSON.stringify(allAccounts));
+      }
 
       const jobId = `comment:${event.instagramAccountId}:${event.commentId}`;
       await queue.add(
