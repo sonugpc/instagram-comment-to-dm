@@ -52,7 +52,10 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
   const automations = await prisma.automation.findMany({
     where: {
-      postId: mediaId,
+      OR: [
+        { postId: mediaId },
+        { postId: `${instagramAccountId}_${mediaId}` },
+      ],
       isActive: true,
       instagramAccount: {
         instagramId: instagramAccountId,
