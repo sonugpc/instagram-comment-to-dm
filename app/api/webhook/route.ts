@@ -28,7 +28,10 @@ export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
 
+  console.log("[Webhook] FACEBOOK_APP_SECRET set:", !!process.env.FACEBOOK_APP_SECRET, "| sig header:", signature?.slice(0, 20));
+
   if (!verifyWebhookSignature(rawBody, signature)) {
+    console.log("[Webhook] Signature verification failed");
     return NextResponse.json(
       { success: false, error: "Invalid signature" },
       { status: 401 }
