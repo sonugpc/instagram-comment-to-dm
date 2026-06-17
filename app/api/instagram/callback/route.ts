@@ -58,11 +58,14 @@ export async function GET(request: NextRequest) {
     const { accessToken: longLivedToken, expiresIn } =
       await getLongLivedToken(shortLivedToken);
     const userInfo = await getUserInfo(longLivedToken);
+    // ig_id is the classic Instagram Business Account ID used by webhooks (entry.id).
+    // id is the app-scoped user ID returned by the new Business Login API — it differs.
+    const instagramId = userInfo.ig_id ?? userInfo.id;
     const connection = await canConnectInstagramAccount({
       workspaceId: state.workspaceId,
       plan: membership.workspace.plan,
       subscriptionStatus: membership.workspace.subscriptionStatus,
-      instagramId: userInfo.id,
+      instagramId,
     });
 
     if (!connection.allowed) {
@@ -91,10 +94,10 @@ export async function GET(request: NextRequest) {
     }
 
     await prisma.instagramAccount.upsert({
-      where: { instagramId: userInfo.id },
+      where: { instagramId },
       create: {
         workspaceId: state.workspaceId,
-        instagramId: userInfo.id,
+        instagramId,
         username: userInfo.username,
         name: userInfo.name,
         accessToken: encryptedToken,
