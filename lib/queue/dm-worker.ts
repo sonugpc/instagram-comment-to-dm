@@ -28,6 +28,28 @@ import { renderMessageWithTracking } from "@/lib/tracking/message";
 
 const BACKOFF_DELAYS = [5 * 60 * 1000, 15 * 60 * 1000, 45 * 60 * 1000];
 
+type CardPayload = {
+  title: string;
+  subtitle?: string;
+  imageUrl?: string;
+  buttons?: Array<{ type: "web_url"; title: string; url: string }>;
+};
+
+function buildTemplateElements(
+  cards: CardPayload[],
+  commenterName: string | undefined,
+  trackedLinks: Array<{ slug: string; destinationUrl: string }>
+): GenericTemplateElement[] {
+  return cards.map((card) => ({
+    title: renderMessageWithTracking({ message: card.title, commenterName, trackedLinks }),
+    subtitle: card.subtitle
+      ? renderMessageWithTracking({ message: card.subtitle, commenterName, trackedLinks })
+      : undefined,
+    imageUrl: card.imageUrl,
+    buttons: card.buttons,
+  }));
+}
+
 function formatError(error: unknown): string {
   if (error instanceof MetaApiError) {
     return `Meta API Error ${error.code}: ${error.message}`;
@@ -409,36 +431,24 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     console.log(`[Worker] Sending content DM — type: ${automation.dmMessageType}`);
     try {
       if (automation.dmMessageType === "CARD" && automation.dmMessagePayload) {
-        const card = automation.dmMessagePayload as {
-          title: string; subtitle?: string; imageUrl?: string;
-          buttons?: Array<{ type: "web_url"; title: string; url: string }>;
-        };
-        const element: GenericTemplateElement = {
-          title: renderMessageWithTracking({ message: card.title, commenterName, trackedLinks: automation.trackedLinks }),
-          subtitle: card.subtitle
-            ? renderMessageWithTracking({ message: card.subtitle, commenterName, trackedLinks: automation.trackedLinks })
-            : undefined,
-          imageUrl: card.imageUrl,
-          buttons: card.buttons,
-        };
+        const elements = buildTemplateElements(
+          [automation.dmMessagePayload as CardPayload],
+          commenterName,
+          automation.trackedLinks
+        );
+        if (elements.length === 0) throw new Error("CARD payload produced no elements");
         console.log(`[Worker] Sending CARD to commentId: ${commentId}`);
-        await sendGenericTemplate(accessToken, automation.instagramAccount.instagramId, commentId, [element]);
+        await sendGenericTemplate(accessToken, automation.instagramAccount.instagramId, commentId, elements);
       } else if (automation.dmMessageType === "CAROUSEL" && automation.dmMessagePayload) {
-        const payload = automation.dmMessagePayload as {
-          cards: Array<{ title: string; subtitle?: string; imageUrl?: string;
-            buttons?: Array<{ type: "web_url"; title: string; url: string }> }>;
-        };
-        const elements: GenericTemplateElement[] = payload.cards.map((card) => ({
-          title: renderMessageWithTracking({ message: card.title, commenterName, trackedLinks: automation.trackedLinks }),
-          subtitle: card.subtitle
-            ? renderMessageWithTracking({ message: card.subtitle, commenterName, trackedLinks: automation.trackedLinks })
-            : undefined,
-          imageUrl: card.imageUrl,
-          buttons: card.buttons,
-        }));
+        const payload = automation.dmMessagePayload as { cards: CardPayload[] };
+        const elements = buildTemplateElements(payload.cards, commenterName, automation.trackedLinks);
+        if (elements.length === 0) throw new Error("CAROUSEL has 0 cards");
         console.log(`[Worker] Sending CAROUSEL (${elements.length} cards) to commentId: ${commentId}`);
         await sendGenericTemplate(accessToken, automation.instagramAccount.instagramId, commentId, elements);
       } else {
+        if (automation.dmMessageType !== "TEXT") {
+          console.warn(`[Worker] dmMessageType "${automation.dmMessageType}" has no payload — sending text DM fallback`);
+        }
         const dmMessage = renderMessageWithTracking({
           message: automation.dmMessage,
           commenterName,
@@ -553,34 +563,22 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
 
   try {
     if (automation.dmMessageType === "CARD" && automation.dmMessagePayload) {
-      const card = automation.dmMessagePayload as {
-        title: string; subtitle?: string; imageUrl?: string;
-        buttons?: Array<{ type: "web_url"; title: string; url: string }>;
-      };
-      const element: GenericTemplateElement = {
-        title: renderMessageWithTracking({ message: card.title, commenterName, trackedLinks: automation.trackedLinks }),
-        subtitle: card.subtitle
-          ? renderMessageWithTracking({ message: card.subtitle, commenterName, trackedLinks: automation.trackedLinks })
-          : undefined,
-        imageUrl: card.imageUrl,
-        buttons: card.buttons,
-      };
-      await sendDirectRichMessage(accessToken, igAccountId, senderIgsid, [element]);
+      const elements = buildTemplateElements(
+        [automation.dmMessagePayload as CardPayload],
+        commenterName,
+        automation.trackedLinks
+      );
+      if (elements.length === 0) throw new Error("CARD payload produced no elements");
+      await sendDirectRichMessage(accessToken, igAccountId, senderIgsid, elements);
     } else if (automation.dmMessageType === "CAROUSEL" && automation.dmMessagePayload) {
-      const payload = automation.dmMessagePayload as {
-        cards: Array<{ title: string; subtitle?: string; imageUrl?: string;
-          buttons?: Array<{ type: "web_url"; title: string; url: string }> }>;
-      };
-      const elements: GenericTemplateElement[] = payload.cards.map((card) => ({
-        title: renderMessageWithTracking({ message: card.title, commenterName, trackedLinks: automation.trackedLinks }),
-        subtitle: card.subtitle
-          ? renderMessageWithTracking({ message: card.subtitle, commenterName, trackedLinks: automation.trackedLinks })
-          : undefined,
-        imageUrl: card.imageUrl,
-        buttons: card.buttons,
-      }));
+      const payload = automation.dmMessagePayload as { cards: CardPayload[] };
+      const elements = buildTemplateElements(payload.cards, commenterName, automation.trackedLinks);
+      if (elements.length === 0) throw new Error("CAROUSEL has 0 cards");
       await sendDirectRichMessage(accessToken, igAccountId, senderIgsid, elements);
     } else {
+      if (automation.dmMessageType !== "TEXT") {
+        console.warn(`[Worker] dmMessageType "${automation.dmMessageType}" has no payload — sending text DM fallback`);
+      }
       const dmMessage = renderMessageWithTracking({
         message: automation.dmMessage,
         commenterName,

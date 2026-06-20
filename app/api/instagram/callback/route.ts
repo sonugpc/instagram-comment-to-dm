@@ -60,12 +60,15 @@ export async function GET(request: NextRequest) {
     const userInfo = await getUserInfo(longLivedToken);
     // ig_id is the classic Instagram Business Account ID used by webhooks (entry.id).
     // id is the app-scoped user ID returned by the new Business Login API — it differs.
+    // ig_id is the classic Instagram Business Account ID used by webhooks (entry.id).
+    // id is the app-scoped user ID returned by the new Business Login API — it differs.
     const instagramId = userInfo.ig_id ?? userInfo.id;
     const connection = await canConnectInstagramAccount({
       workspaceId: state.workspaceId,
       plan: membership.workspace.plan,
       subscriptionStatus: membership.workspace.subscriptionStatus,
       instagramId,
+      legacyInstagramId: userInfo.id,
     });
 
     if (!connection.allowed) {
@@ -93,26 +96,34 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    await prisma.instagramAccount.upsert({
-      where: { instagramId },
-      create: {
-        workspaceId: state.workspaceId,
-        instagramId,
-        username: userInfo.username,
-        name: userInfo.name,
-        accessToken: encryptedToken,
-        tokenExpiresAt,
-        webhookSubscribed,
-      },
-      update: {
-        workspaceId: state.workspaceId,
-        username: userInfo.username,
-        name: userInfo.name,
-        accessToken: encryptedToken,
-        tokenExpiresAt,
-        webhookSubscribed,
-      },
+    // Search by both the new ig_id and the old app-scoped id so a reconnect
+    // updates the existing row (including migrating instagramId) instead of
+    // creating a duplicate row that orphans all FK-linked automations.
+    const searchIds = [instagramId];
+    if (userInfo.id !== instagramId) searchIds.push(userInfo.id);
+    const existingAccount = await prisma.instagramAccount.findFirst({
+      where: { instagramId: { in: searchIds } },
+      select: { id: true },
     });
+
+    const accountData = {
+      workspaceId: state.workspaceId,
+      instagramId,
+      username: userInfo.username,
+      name: userInfo.name,
+      accessToken: encryptedToken,
+      tokenExpiresAt,
+      webhookSubscribed,
+    };
+
+    if (existingAccount) {
+      await prisma.instagramAccount.update({
+        where: { id: existingAccount.id },
+        data: accountData,
+      });
+    } else {
+      await prisma.instagramAccount.create({ data: accountData });
+    }
 
     return NextResponse.redirect(`${baseUrl}/dashboard?connected=true`);
   } catch (err) {

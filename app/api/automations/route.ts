@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     where: { workspaceId, ...accountFilter },
     include: {
       instagramAccount: {
-        select: { username: true, instagramId: true },
+        select: { id: true, username: true, instagramId: true },
       },
       _count: {
         select: { dmLogs: true },

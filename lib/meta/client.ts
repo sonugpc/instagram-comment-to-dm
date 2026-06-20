@@ -315,8 +315,9 @@ export async function getUserInfo(accessToken: string): Promise<InstagramUser> {
 
 export async function getUserMedia(
   accessToken: string,
-  limit = 25
-): Promise<InstagramMedia[]> {
+  limit = 25,
+  after?: string
+): Promise<{ posts: InstagramMedia[]; nextCursor?: string }> {
   const url = new URL(`${instagramGraphBase()}/me/media`);
   url.searchParams.set(
     "fields",
@@ -324,10 +325,17 @@ export async function getUserMedia(
   );
   url.searchParams.set("limit", limit.toString());
   url.searchParams.set("access_token", accessToken);
+  if (after) url.searchParams.set("after", after);
 
   const response = await fetch(url.toString());
-  const data = await handleResponse<{ data: InstagramMedia[] }>(response);
-  return data.data;
+  const data = await handleResponse<{
+    data: InstagramMedia[];
+    paging?: { cursors?: { after?: string }; next?: string };
+  }>(response);
+  return {
+    posts: data.data,
+    nextCursor: data.paging?.next ? data.paging.cursors?.after : undefined,
+  };
 }
 
 export async function getLongLivedToken(

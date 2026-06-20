@@ -2,14 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-/**
- * Post Picker
- *
- * Grid of Instagram post thumbnails, selectable.
- * Fetches from /api/instagram/posts.
- */
-
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 interface InstagramPost {
   id: string;
@@ -34,7 +27,9 @@ export default function PostPicker({
 }: PostPickerProps) {
   const [posts, setPosts] = useState<InstagramPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,17 +38,19 @@ export default function PostPicker({
       params.set("instagramAccountId", instagramAccountId);
     }
 
-    const timer = window.setTimeout(() => {
-      setLoading(true);
-      setError(null);
-      setPosts([]);
+    setLoading(true);
+    setError(null);
+    setPosts([]);
+    setNextCursor(null);
 
+    const timer = window.setTimeout(() => {
       fetch(`/api/instagram/posts${params.size ? `?${params}` : ""}`)
         .then((r) => r.json())
         .then((data) => {
           if (cancelled) return;
           if (data.success) {
             setPosts(data.data);
+            setNextCursor(data.nextCursor ?? null);
           } else {
             setError(data.error ?? "Failed to load posts");
           }
@@ -71,6 +68,24 @@ export default function PostPicker({
       window.clearTimeout(timer);
     };
   }, [instagramAccountId]);
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams();
+      if (instagramAccountId) params.set("instagramAccountId", instagramAccountId);
+      params.set("cursor", nextCursor);
+      const r = await fetch(`/api/instagram/posts?${params}`);
+      const data = await r.json();
+      if (data.success) {
+        setPosts((prev) => [...prev, ...data.data]);
+        setNextCursor(data.nextCursor ?? null);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextCursor, loadingMore, instagramAccountId]);
 
   if (loading) {
     return (
@@ -100,43 +115,55 @@ export default function PostPicker({
   }
 
   return (
-    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-64 overflow-y-auto p-1">
-      {posts.map((post) => {
-        const isSelected = selectedPostId === post.id;
-        const thumb = post.thumbnail_url ?? post.media_url;
-        return (
-          <button
-            key={post.id}
-            type="button"
-            onClick={() => onSelect(post.id, post.permalink)}
-            className={`
-              relative aspect-square rounded-xl overflow-hidden border-2 transition-all
-              ${isSelected ? "border-accent ring-2 ring-accent/30 scale-[1.02]" : "border-transparent hover:border-border-hover"}
-            `}
-          >
-            {thumb ? (
-              <img
-                src={thumb}
-                alt={post.caption?.slice(0, 50) ?? "Instagram post"}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
-                <svg className="w-6 h-6 text-zinc-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M2.25 18V6a2.25 2.25 0 0 1 2.25-2.25h15A2.25 2.25 0 0 1 21.75 6v12A2.25 2.25 0 0 1 19.5 20.25H4.5A2.25 2.25 0 0 1 2.25 18Z" />
-                </svg>
-              </div>
-            )}
-            {isSelected && (
-              <div className="absolute inset-0 bg-accent/20 flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                </svg>
-              </div>
-            )}
-          </button>
-        );
-      })}
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-64 overflow-y-auto p-1">
+        {posts.map((post) => {
+          const isSelected = selectedPostId === post.id;
+          const thumb = post.thumbnail_url ?? post.media_url;
+          return (
+            <button
+              key={post.id}
+              type="button"
+              onClick={() => onSelect(post.id, post.permalink)}
+              className={`
+                relative aspect-square rounded-xl overflow-hidden border-2 transition-all
+                ${isSelected ? "border-accent ring-2 ring-accent/30 scale-[1.02]" : "border-transparent hover:border-border-hover"}
+              `}
+            >
+              {thumb ? (
+                <img
+                  src={thumb}
+                  alt={post.caption?.slice(0, 50) ?? "Instagram post"}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-zinc-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M2.25 18V6a2.25 2.25 0 0 1 2.25-2.25h15A2.25 2.25 0 0 1 21.75 6v12A2.25 2.25 0 0 1 19.5 20.25H4.5A2.25 2.25 0 0 1 2.25 18Z" />
+                  </svg>
+                </div>
+              )}
+              {isSelected && (
+                <div className="absolute inset-0 bg-accent/20 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                  </svg>
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {nextCursor && (
+        <button
+          type="button"
+          onClick={loadMore}
+          disabled={loadingMore}
+          className="w-full py-2 rounded-xl border border-border text-xs font-medium text-muted hover:text-foreground hover:border-border-hover transition-colors disabled:opacity-50"
+        >
+          {loadingMore ? "Loading…" : "Load more posts"}
+        </button>
+      )}
     </div>
   );
 }

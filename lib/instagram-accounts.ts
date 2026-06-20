@@ -15,14 +15,21 @@ export async function canConnectInstagramAccount({
   plan,
   subscriptionStatus,
   instagramId,
+  legacyInstagramId,
 }: {
   workspaceId: string;
   plan: Plan;
   subscriptionStatus: SubscriptionStatus;
   instagramId: string;
+  legacyInstagramId?: string;
 }) {
-  const existingAccount = await prisma.instagramAccount.findUnique({
-    where: { instagramId },
+  const searchIds =
+    legacyInstagramId && legacyInstagramId !== instagramId
+      ? [instagramId, legacyInstagramId]
+      : [instagramId];
+
+  const existingAccount = await prisma.instagramAccount.findFirst({
+    where: { instagramId: { in: searchIds } },
     select: { workspaceId: true },
   });
 

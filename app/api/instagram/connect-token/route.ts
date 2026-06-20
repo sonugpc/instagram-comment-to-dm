@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
       plan: membership.workspace.plan,
       subscriptionStatus: membership.workspace.subscriptionStatus,
       instagramId,
+      legacyInstagramId: userInfo.id,
     });
 
     if (!connection.allowed) {
@@ -65,26 +66,31 @@ export async function POST(request: NextRequest) {
       // Webhook subscription will fail locally without a public tunnel URL — that's expected
     }
 
-    await prisma.instagramAccount.upsert({
-      where: { instagramId },
-      create: {
-        workspaceId: context.workspaceId,
-        instagramId,
-        username: userInfo.username,
-        name: userInfo.name,
-        accessToken: encryptedToken,
-        tokenExpiresAt,
-        webhookSubscribed,
-      },
-      update: {
-        workspaceId: context.workspaceId,
-        username: userInfo.username,
-        name: userInfo.name,
-        accessToken: encryptedToken,
-        tokenExpiresAt,
-        webhookSubscribed,
-      },
+    const searchIds = [instagramId];
+    if (userInfo.id !== instagramId) searchIds.push(userInfo.id);
+    const existingAccount = await prisma.instagramAccount.findFirst({
+      where: { instagramId: { in: searchIds } },
+      select: { id: true },
     });
+
+    const accountData = {
+      workspaceId: context.workspaceId,
+      instagramId,
+      username: userInfo.username,
+      name: userInfo.name,
+      accessToken: encryptedToken,
+      tokenExpiresAt,
+      webhookSubscribed,
+    };
+
+    if (existingAccount) {
+      await prisma.instagramAccount.update({
+        where: { id: existingAccount.id },
+        data: accountData,
+      });
+    } else {
+      await prisma.instagramAccount.create({ data: accountData });
+    }
 
     return NextResponse.json({ success: true, username: userInfo.username });
   } catch (err) {

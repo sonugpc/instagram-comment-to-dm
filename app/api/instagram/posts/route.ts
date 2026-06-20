@@ -35,9 +35,10 @@ export async function GET(request: NextRequest) {
     const limit = Number.isFinite(parsedLimit)
       ? Math.min(Math.max(parsedLimit, 1), 50)
       : 25;
-    const posts = await getUserMedia(accessToken, limit);
+    const cursor = request.nextUrl.searchParams.get("cursor") ?? undefined;
+    const result = await getUserMedia(accessToken, limit, cursor);
 
-    return NextResponse.json({ success: true, data: posts });
+    return NextResponse.json({ success: true, data: result.posts, nextCursor: result.nextCursor });
   } catch (err) {
     console.error("[Instagram Posts] Error:", err);
     return NextResponse.json(

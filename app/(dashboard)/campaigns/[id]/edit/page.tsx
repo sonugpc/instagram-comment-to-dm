@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import KeywordInput from "@/components/keyword-input";
+import PostPicker from "@/components/post-picker";
 import RichMessageBuilder from "@/components/rich-message-builder";
 import { replaceUrlWithTrackedPlaceholder } from "@/lib/tracking/message";
 import { emptyCard, type DmCard, type DmMessageType } from "@/lib/types/dm-message";
@@ -27,7 +28,10 @@ interface CampaignDetail {
   dmMessageType: DmMessageType;
   dmMessagePayload: Record<string, unknown> | null;
   trackedLinks: Array<{ destinationUrl: string }>;
-  instagramAccount: { username: string };
+  postId: string | null;
+  postUrl: string | null;
+  instagramAccountId: string;
+  instagramAccount: { id: string; username: string };
 }
 
 export default function EditCampaignPage() {
@@ -46,6 +50,8 @@ export default function EditCampaignPage() {
   const [wholeWordMatch, setWholeWordMatch] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [instagramUsername, setInstagramUsername] = useState("");
+  const [linkedPostId, setLinkedPostId] = useState<string | null>(null);
+  const [linkedAccountId, setLinkedAccountId] = useState<string | null>(null);
   const [trackedDestinationUrl, setTrackedDestinationUrl] = useState("");
 
   // Comment reply (public)
@@ -84,6 +90,8 @@ export default function EditCampaignPage() {
         setGoal(campaign.goal ?? "");
         setKeywords(campaign.keywords);
         setInstagramUsername(campaign.instagramAccount.username);
+        setLinkedPostId(campaign.postId ?? null);
+        setLinkedAccountId(campaign.instagramAccount.id);
         setWholeWordMatch(campaign.wholeWordMatch);
         setIsActive(campaign.isActive);
 
@@ -231,6 +239,21 @@ export default function EditCampaignPage() {
             <span className="ml-2 text-xs text-zinc-600">(cannot be changed after creation)</span>
           </div>
         </div>
+
+        {/* Linked post (read-only preview) */}
+        {linkedPostId && (
+          <div className="space-y-2">
+            <p className="block text-sm font-medium text-foreground">Linked Post</p>
+            <p className="text-xs text-muted">The post this campaign monitors for comments.</p>
+            <div className="pointer-events-none">
+              <PostPicker
+                selectedPostId={linkedPostId}
+                instagramAccountId={linkedAccountId}
+                onSelect={() => {}}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Keywords */}
         <div className="space-y-2">
