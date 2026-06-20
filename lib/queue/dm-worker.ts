@@ -12,6 +12,7 @@ import {
   sendRichReply,
   sendGenericTemplate,
   sendDirectMessage,
+  sendDirectRichMessage,
   replyToComment,
   type GenericTemplateElement,
 } from "@/lib/meta/client";
@@ -545,20 +546,50 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     return;
   }
 
-  const dmMessage = renderMessageWithTracking({
-    message: automation.dmMessage,
-    commenterName: pendingLog?.commenterName ?? undefined,
-    trackedLinks: automation.trackedLinks,
-  });
-  console.log(`[Worker] Sending DM to senderIgsid: ${senderIgsid} | message: "${dmMessage}"`);
+  const commenterName = pendingLog?.commenterName ?? undefined;
+  const igAccountId = automation.instagramAccount.instagramId;
+
+  console.log(`[Worker] Sending postback DM — type: ${automation.dmMessageType} | to: ${senderIgsid}`);
 
   try {
-    await sendDirectMessage(
-      accessToken,
-      automation.instagramAccount.instagramId,
-      senderIgsid,
-      dmMessage
-    );
+    if (automation.dmMessageType === "CARD" && automation.dmMessagePayload) {
+      const card = automation.dmMessagePayload as {
+        title: string; subtitle?: string; imageUrl?: string;
+        buttons?: Array<{ type: "web_url"; title: string; url: string }>;
+      };
+      const element: GenericTemplateElement = {
+        title: renderMessageWithTracking({ message: card.title, commenterName, trackedLinks: automation.trackedLinks }),
+        subtitle: card.subtitle
+          ? renderMessageWithTracking({ message: card.subtitle, commenterName, trackedLinks: automation.trackedLinks })
+          : undefined,
+        imageUrl: card.imageUrl,
+        buttons: card.buttons,
+      };
+      await sendDirectRichMessage(accessToken, igAccountId, senderIgsid, [element]);
+    } else if (automation.dmMessageType === "CAROUSEL" && automation.dmMessagePayload) {
+      const payload = automation.dmMessagePayload as {
+        cards: Array<{ title: string; subtitle?: string; imageUrl?: string;
+          buttons?: Array<{ type: "web_url"; title: string; url: string }> }>;
+      };
+      const elements: GenericTemplateElement[] = payload.cards.map((card) => ({
+        title: renderMessageWithTracking({ message: card.title, commenterName, trackedLinks: automation.trackedLinks }),
+        subtitle: card.subtitle
+          ? renderMessageWithTracking({ message: card.subtitle, commenterName, trackedLinks: automation.trackedLinks })
+          : undefined,
+        imageUrl: card.imageUrl,
+        buttons: card.buttons,
+      }));
+      await sendDirectRichMessage(accessToken, igAccountId, senderIgsid, elements);
+    } else {
+      const dmMessage = renderMessageWithTracking({
+        message: automation.dmMessage,
+        commenterName,
+        trackedLinks: automation.trackedLinks,
+      });
+      console.log(`[Worker] Postback TEXT DM: "${dmMessage}"`);
+      await sendDirectMessage(accessToken, igAccountId, senderIgsid, dmMessage);
+    }
+
     console.log(`[Worker] Postback DM sent OK`);
 
     if (pendingLog) {
