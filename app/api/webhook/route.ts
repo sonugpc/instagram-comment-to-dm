@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   let payload: unknown;
   try {
     payload = JSON.parse(rawBody);
-    console.log("[Webhook] Raw payload:", JSON.stringify(payload));
+    console.log("[Webhook] Raw payload object:", typeof payload);
   } catch {
     console.log("[Webhook] JSON parse failed");
     return NextResponse.json(
@@ -113,14 +113,18 @@ export async function POST(request: NextRequest) {
       }
 
       const prefix = isSendLink ? "SEND_LINK:" : "FOLLOW_CONFIRM:";
-      const automationId = event.postbackPayload.slice(prefix.length);
-      const jobId = `postback:${event.instagramAccountId}:${event.senderIgsid}:${automationId}`;
+      const rest = event.postbackPayload.slice(prefix.length);
+      const colonIdx = rest.indexOf(":");
+      const automationId = colonIdx === -1 ? rest : rest.slice(0, colonIdx);
+      const commentId = colonIdx === -1 ? undefined : rest.slice(colonIdx + 1);
+      const jobId = `postback:${event.instagramAccountId}:${event.senderIgsid}:${automationId}:${commentId ?? "x"}`;
       await queue.add(
         "process-postback",
         {
           instagramAccountId: event.instagramAccountId,
           senderIgsid: event.senderIgsid,
           automationId,
+          commentId,
         },
         { jobId }
       );

@@ -6,8 +6,18 @@ import { ensureWorkspaceForUser, getPrimaryWorkspace } from "@/lib/workspace";
 
 type AdapterPrismaClient = Parameters<typeof PrismaAdapter>[0];
 
+const baseAdapter = PrismaAdapter(prisma as unknown as AdapterPrismaClient);
+
 export const authConfig = {
-  adapter: PrismaAdapter(prisma as unknown as AdapterPrismaClient),
+  adapter: {
+    ...baseAdapter,
+    // Prisma's `delete` throws P2025 if the record is missing; `deleteMany` is always safe.
+    deleteSession: async (sessionToken: string) => {
+      await (prisma as unknown as AdapterPrismaClient).session.deleteMany({
+        where: { sessionToken },
+      });
+    },
+  },
   providers: [
     Resend({
       apiKey: process.env.RESEND_API_KEY ?? "missing-resend-api-key",

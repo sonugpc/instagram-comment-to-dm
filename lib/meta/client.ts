@@ -251,6 +251,7 @@ export async function sendDirectRichMessage(
       },
       body: JSON.stringify({
         recipient: { id: recipientIgsid },
+        messaging_type: "RESPONSE",
         message: {
           attachment: {
             type: "template",
@@ -283,6 +284,7 @@ export async function sendDirectMessage(
       },
       body: JSON.stringify({
         recipient: { id: recipientIgsid },
+        messaging_type: "RESPONSE",
         message: { text: message },
       }),
     }
@@ -311,6 +313,20 @@ export async function getUserInfo(accessToken: string): Promise<InstagramUser> {
 
   const response = await fetch(url.toString());
   return handleResponse<InstagramUser>(response);
+}
+
+export async function getMediaById(
+  accessToken: string,
+  mediaId: string
+): Promise<InstagramMedia> {
+  const url = new URL(`${instagramGraphBase()}/${mediaId}`);
+  url.searchParams.set(
+    "fields",
+    "id,caption,media_type,media_url,thumbnail_url,timestamp,permalink"
+  );
+  url.searchParams.set("access_token", accessToken);
+  const response = await fetch(url.toString());
+  return handleResponse<InstagramMedia>(response);
 }
 
 export async function getUserMedia(

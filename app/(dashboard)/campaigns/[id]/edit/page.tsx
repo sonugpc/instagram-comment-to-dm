@@ -25,6 +25,7 @@ interface CampaignDetail {
   followCheckEnabled: boolean;
   followCheckMessage: string | null;
   followCheckButtonText: string | null;
+  allowRepeatDMs: boolean;
   dmMessageType: DmMessageType;
   dmMessagePayload: Record<string, unknown> | null;
   trackedLinks: Array<{ destinationUrl: string }>;
@@ -49,6 +50,7 @@ export default function EditCampaignPage() {
   const [dmMessage, setDmMessage] = useState("");
   const [wholeWordMatch, setWholeWordMatch] = useState(true);
   const [isActive, setIsActive] = useState(true);
+  const [allowRepeatDMs, setAllowRepeatDMs] = useState(false);
   const [instagramUsername, setInstagramUsername] = useState("");
   const [linkedPostId, setLinkedPostId] = useState<string | null>(null);
   const [linkedAccountId, setLinkedAccountId] = useState<string | null>(null);
@@ -93,6 +95,7 @@ export default function EditCampaignPage() {
         setLinkedPostId(campaign.postId ?? null);
         setLinkedAccountId(campaign.instagramAccount.id);
         setWholeWordMatch(campaign.wholeWordMatch);
+        setAllowRepeatDMs(campaign.allowRepeatDMs ?? false);
         setIsActive(campaign.isActive);
 
         const dest = campaign.trackedLinks[0]?.destinationUrl ?? "";
@@ -172,6 +175,7 @@ export default function EditCampaignPage() {
           followCheckEnabled: messageFlow === "follow_check",
           followCheckMessage: messageFlow === "follow_check" ? (followCheckMessage || null) : null,
           followCheckButtonText: messageFlow === "follow_check" ? (followCheckButtonText || null) : null,
+          allowRepeatDMs,
         }),
       });
 
@@ -250,6 +254,7 @@ export default function EditCampaignPage() {
                 selectedPostId={linkedPostId}
                 instagramAccountId={linkedAccountId}
                 onSelect={() => {}}
+                previewOnly
               />
             </div>
           </div>
@@ -459,6 +464,20 @@ export default function EditCampaignPage() {
             <div>
               <span className="text-sm font-medium text-foreground">Active</span>
               <p className="text-xs text-muted">{isActive ? "Campaign is listening for comments" : "Campaign is paused"}</p>
+            </div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <button type="button" onClick={() => setAllowRepeatDMs(!allowRepeatDMs)}
+              className={`relative w-11 h-6 rounded-full transition-colors ${allowRepeatDMs ? "bg-amber-500" : "bg-zinc-700"}`}>
+              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform shadow-sm ${allowRepeatDMs ? "left-6" : "left-1"}`} />
+            </button>
+            <div>
+              <span className="text-sm font-medium text-foreground">Allow repeat DMs</span>
+              <p className="text-xs text-muted">
+                {allowRepeatDMs
+                  ? "Same user can receive a DM for each comment — useful for testing"
+                  : "Each user receives at most one DM per campaign (recommended for production)"}
+              </p>
             </div>
           </label>
         </div>

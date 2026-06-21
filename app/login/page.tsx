@@ -1,4 +1,5 @@
-import { signIn } from "@/lib/auth";
+import { signIn, auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { getCampaignTemplate } from "@/lib/templates/campaign-templates";
 
 export const metadata = {
@@ -15,6 +16,11 @@ export default async function LoginPage({
     template?: string;
   }>;
 }) {
+  const session = await auth();
+  if (session?.user?.id) {
+    redirect("/dashboard");
+  }
+
   const params = await searchParams;
   const checkEmail = params.checkEmail === "1";
   const selectedTemplate = getCampaignTemplate(params.template);

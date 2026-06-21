@@ -36,6 +36,8 @@ const createAutomationSchema = z.object({
   followCheckEnabled: z.boolean().optional().default(false),
   followCheckMessage: z.string().max(500).optional().nullable(),
   followCheckButtonText: z.string().max(20).optional().nullable(),
+  // Per-user dedup: false = 1 DM per commenter per automation; true = allow repeats (testing)
+  allowRepeatDMs: z.boolean().optional().default(false),
   // Rich DM message type
   dmMessageType: z.enum(["TEXT", "CARD", "CAROUSEL"] as const).optional().default("TEXT"),
   dmMessagePayload: z.record(z.string(), z.unknown()).optional().nullable(),
@@ -61,6 +63,8 @@ const updateAutomationSchema = z.object({
   followCheckEnabled: z.boolean().optional(),
   followCheckMessage: z.string().max(500).optional().nullable(),
   followCheckButtonText: z.string().max(20).optional().nullable(),
+  // Per-user dedup
+  allowRepeatDMs: z.boolean().optional(),
   // Rich DM message type
   dmMessageType: z.enum(["TEXT", "CARD", "CAROUSEL"] as const).optional(),
   dmMessagePayload: z.record(z.string(), z.unknown()).optional().nullable(),
@@ -321,6 +325,7 @@ export async function POST(request: NextRequest) {
       followCheckEnabled: parsed.data.followCheckEnabled,
       followCheckMessage: parsed.data.followCheckMessage,
       followCheckButtonText: parsed.data.followCheckButtonText,
+      allowRepeatDMs: parsed.data.allowRepeatDMs,
       dmMessageType: parsed.data.dmMessageType as "TEXT" | "CARD" | "CAROUSEL",
       dmMessagePayload: parsed.data.dmMessagePayload as Prisma.InputJsonValue ?? Prisma.JsonNull,
       workspaceId,

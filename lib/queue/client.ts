@@ -37,6 +37,7 @@ export interface ProcessPostbackJob {
   instagramAccountId: string;
   senderIgsid: string;
   automationId: string;
+  commentId?: string;
 }
 
 export type AnyDMJob = ProcessCommentJob | ProcessPostbackJob;

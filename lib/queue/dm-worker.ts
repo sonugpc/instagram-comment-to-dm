@@ -127,10 +127,38 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     if (
       existingLog?.status === "SENT" ||
       existingLog?.status === "SKIPPED_PLAN_LIMIT" ||
-      existingLog?.status === "SKIPPED_RATE_LIMIT"
+      existingLog?.status === "SKIPPED_RATE_LIMIT" ||
+      existingLog?.status === "SKIPPED_DEDUP"
     ) {
       console.log(`[Worker] Skipping — already processed with status: ${existingLog.status}`);
       continue;
+    }
+
+    // Per-user dedup: when allowRepeatDMs is false, send at most one DM per commenter per automation.
+    if (!automation.allowRepeatDMs) {
+      const priorSent = await prisma.dmLog.findFirst({
+        where: { automationId: automation.id, commenterId, status: "SENT" },
+        select: { id: true },
+      });
+      if (priorSent) {
+        console.log(`[Worker] SKIPPED_DEDUP — commenter ${commenterId} already received DM for automation ${automation.id}`);
+        await prisma.dmLog.upsert({
+          where: { automationId_commentId: { automationId: automation.id, commentId } },
+          create: {
+            workspaceId: automation.workspaceId,
+            automationId: automation.id,
+            instagramAccountId: automation.instagramAccountId,
+            commenterId,
+            commenterName,
+            commentText,
+            commentId,
+            matchedKeyword: matchResult.matchedKeyword,
+            status: "SKIPPED_DEDUP",
+          },
+          update: { status: "SKIPPED_DEDUP", matchedKeyword: matchResult.matchedKeyword },
+        });
+        continue;
+      }
     }
 
     if (!automation.instagramAccount.accessToken) {
@@ -358,7 +386,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
               {
                 type: "postback",
                 title: automation.followCheckButtonText ?? "I'm Following ✅",
-                payload: `FOLLOW_CONFIRM:${automation.id}`,
+                payload: `FOLLOW_CONFIRM:${automation.id}:${commentId}`,
               },
             ],
           }
@@ -401,7 +429,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
               {
                 type: "postback",
                 title: automation.welcomeButtonText ?? "Send me Link",
-                payload: `SEND_LINK:${automation.id}`,
+                payload: `SEND_LINK:${automation.id}:${commentId}`,
               },
             ],
           }
@@ -504,8 +532,8 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 }
 
 async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
-  const { automationId, senderIgsid } = job.data;
-  console.log(`[Worker] processPostback start — jobId: ${job.id} | automationId: ${automationId} | senderIgsid: ${senderIgsid}`);
+  const { automationId, senderIgsid, commentId } = job.data;
+  console.log(`[Worker] processPostback start — jobId: ${job.id} | automationId: ${automationId} | senderIgsid: ${senderIgsid} | commentId: ${commentId}`);
 
   const automation = await prisma.automation.findUnique({
     where: { id: automationId },
@@ -538,16 +566,23 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     return;
   }
 
-  // Find the pending welcome DM log for this sender so we can mark it sent
-  const pendingLog = await prisma.dmLog.findFirst({
-    where: {
-      automationId,
-      commenterId: senderIgsid,
-      status: "WELCOME_SENT",
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  console.log(`[Worker] Pending WELCOME_SENT log: ${pendingLog ? `found (id: ${pendingLog.id})` : "NOT FOUND"}`);
+  // Find the pending welcome DM log. Prefer exact commentId lookup (embedded in the
+  // button payload) because senderIgsid from postback may differ from commenterId
+  // stored at comment-time (different ID scopes across Meta's APIs).
+  const pendingLog = commentId
+    ? await prisma.dmLog.findUnique({
+        where: { automationId_commentId: { automationId, commentId } },
+      })
+    : await prisma.dmLog.findFirst({
+        where: { automationId, commenterId: senderIgsid, status: "WELCOME_SENT" },
+        orderBy: { createdAt: "desc" },
+      });
+  console.log(`[Worker] Pending WELCOME_SENT log: ${pendingLog ? `found (id: ${pendingLog.id}, status: ${pendingLog.status})` : "NOT FOUND"}`);
+
+  if (pendingLog?.status === "SENT") {
+    console.log(`[Worker] Postback aborted — DM already sent for this comment (duplicate button click)`);
+    return;
+  }
 
   const usage = await reserveWorkspaceDMSend(automation.workspaceId);
   console.log(`[Worker] Postback plan usage — allowed: ${usage.allowed}`);

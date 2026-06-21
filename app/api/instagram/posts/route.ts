@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
-import { getUserMedia } from "@/lib/meta/client";
+import { getUserMedia, getMediaById } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 
 export async function GET(request: NextRequest) {
@@ -30,6 +30,13 @@ export async function GET(request: NextRequest) {
 
   try {
     const accessToken = decryptToken(account.accessToken);
+
+    const postId = request.nextUrl.searchParams.get("postId");
+    if (postId) {
+      const post = await getMediaById(accessToken, postId);
+      return NextResponse.json({ success: true, data: [post], nextCursor: null });
+    }
+
     const limitParam = request.nextUrl.searchParams.get("limit");
     const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : 25;
     const limit = Number.isFinite(parsedLimit)

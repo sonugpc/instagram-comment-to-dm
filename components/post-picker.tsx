@@ -18,12 +18,14 @@ interface PostPickerProps {
   selectedPostId: string | null;
   instagramAccountId?: string | null;
   onSelect: (postId: string, postUrl?: string) => void;
+  previewOnly?: boolean;
 }
 
 export default function PostPicker({
   selectedPostId,
   instagramAccountId,
   onSelect,
+  previewOnly = false,
 }: PostPickerProps) {
   const [posts, setPosts] = useState<InstagramPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +39,9 @@ export default function PostPicker({
     if (instagramAccountId) {
       params.set("instagramAccountId", instagramAccountId);
     }
+    if (previewOnly && selectedPostId) {
+      params.set("postId", selectedPostId);
+    }
 
     setLoading(true);
     setError(null);
@@ -44,7 +49,7 @@ export default function PostPicker({
     setNextCursor(null);
 
     const timer = window.setTimeout(() => {
-      fetch(`/api/instagram/posts${params.size ? `?${params}` : ""}`)
+      fetch(`/api/instagram/posts?${params}`)
         .then((r) => r.json())
         .then((data) => {
           if (cancelled) return;
@@ -67,7 +72,7 @@ export default function PostPicker({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [instagramAccountId]);
+  }, [instagramAccountId, previewOnly, selectedPostId]);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;

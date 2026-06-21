@@ -51,6 +51,7 @@ export default function NewCampaignPage() {
   );
   const [wholeWordMatch, setWholeWordMatch] = useState(true);
   const [isActive, setIsActive] = useState(true);
+  const [allowRepeatDMs, setAllowRepeatDMs] = useState(false);
 
   // Comment reply (public)
   const [commentReplyEnabled, setCommentReplyEnabled] = useState(false);
@@ -135,6 +136,7 @@ export default function NewCampaignPage() {
           trackedDestinationUrl: trackedDestinationUrl || null,
           wholeWordMatch,
           isActive,
+          allowRepeatDMs,
           // Comment reply
           commentReplyEnabled,
           commentReplies,
@@ -617,6 +619,31 @@ export default function NewCampaignPage() {
               <span className="text-sm font-medium text-foreground">Launch active</span>
               <p className="text-xs text-muted">
                 {isActive ? "Campaign starts listening after creation" : "Campaign is saved paused"}
+              </p>
+            </div>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <button
+              type="button"
+              onClick={() => setAllowRepeatDMs(!allowRepeatDMs)}
+              className={`
+                relative w-11 h-6 rounded-full transition-colors
+                ${allowRepeatDMs ? "bg-amber-500" : "bg-zinc-700"}
+              `}
+            >
+              <span
+                className={`
+                  absolute top-1 w-4 h-4 rounded-full bg-white transition-transform shadow-sm
+                  ${allowRepeatDMs ? "left-6" : "left-1"}
+                `}
+              />
+            </button>
+            <div>
+              <span className="text-sm font-medium text-foreground">Allow repeat DMs</span>
+              <p className="text-xs text-muted">
+                {allowRepeatDMs
+                  ? "Same user can receive a DM for each comment — useful for testing"
+                  : "Each user receives at most one DM per campaign (recommended for production)"}
               </p>
             </div>
           </label>

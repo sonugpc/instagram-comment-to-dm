@@ -182,6 +182,11 @@ model Automation {
   followCheckMessage    String?
   followCheckButtonText String?
 
+  // Per-user DM deduplication.
+  // false (default) = one DM per unique commenter per automation.
+  // true  = allow the same user to receive a DM for each matching comment (useful for testing).
+  allowRepeatDMs Boolean @default(false)
+
   // Private reply message type
   dmMessageType    DmMessageType @default(TEXT)
   dmMessagePayload Json?
