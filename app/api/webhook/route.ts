@@ -74,6 +74,11 @@ export async function POST(request: NextRequest) {
     for (const event of commentEvents) {
       console.log("[Webhook] Comment event — igAccountId:", event.instagramAccountId, "| mediaId:", event.mediaId, "| commentId:", event.commentId, "| text:", event.commentText, "| from:", event.commenterId, event.commenterName);
 
+      if (event.commenterId === event.instagramAccountId) {
+        console.log("[Webhook] Skipping self-comment from own account");
+        continue;
+      }
+
       const account = await prisma.instagramAccount.findUnique({
         where: { instagramId: event.instagramAccountId },
         select: { workspaceId: true },
@@ -117,7 +122,7 @@ export async function POST(request: NextRequest) {
       const colonIdx = rest.indexOf(":");
       const automationId = colonIdx === -1 ? rest : rest.slice(0, colonIdx);
       const commentId = colonIdx === -1 ? undefined : rest.slice(colonIdx + 1);
-      const jobId = `postback:${event.instagramAccountId}:${event.senderIgsid}:${automationId}:${commentId ?? "x"}`;
+      const jobId = `postback_${event.instagramAccountId}_${event.senderIgsid}_${automationId}_${commentId ?? "x"}`;
       await queue.add(
         "process-postback",
         {
