@@ -151,9 +151,7 @@ export async function POST(request: NextRequest) {
       data: { status: "FAILED", errorMessage: message, processedAt: new Date() },
     });
 
-    return NextResponse.json(
-      { success: false, error: "Webhook processing failed" },
-      { status: 500 }
-    );
+    // Always return 200 to Meta — a non-200 causes infinite retries of the same payload.
+    return NextResponse.json({ success: false, error: "Webhook processing failed" }, { status: 200 });
   }
 }

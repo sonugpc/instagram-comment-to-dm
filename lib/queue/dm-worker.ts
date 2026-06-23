@@ -126,6 +126,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
     if (
       existingLog?.status === "SENT" ||
+      existingLog?.status === "WELCOME_SENT" ||
       existingLog?.status === "SKIPPED_PLAN_LIMIT" ||
       existingLog?.status === "SKIPPED_RATE_LIMIT" ||
       existingLog?.status === "SKIPPED_DEDUP"
